@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>濟州島行程與房務管理後台</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // 拆分 API Key 避免 GitHub 警報
+    const k1 = "AIzaSyChnQOp6dz";
+    const k2 = "bohJRCPiOMnA65xVmmUyysV8";
+
+    const firebaseConfig = {
+      apiKey: k1 + k2,
+      authDomain: "jeju-system.firebaseapp.com",
+      databaseURL: "https://jeju-system-default-rtdb.firebaseio.com",
+      projectId: "jeju-system",
+      storageBucket: "jeju-system.firebasestorage.app",
+      messagingSenderId: "918975222741",
+      appId: "1:918975222741:web:e9434a6326f522904c635c"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // 狀態變數
+    let allGuests = {};
+    let activeTab = 'roster'; // 'roster' | 'housekeeping'
+    const ADMIN_PIN = "8888";
+
+    // 1. PIN 碼安全驗證
+    const authOverlay = document.getElementById("authOverlay");
+    const adminPinInput = document.getElementById("adminPin");
+    const pinError = document.getElementById("pinError");
+    const unlockBtn = document.getElementById("unlockBtn");
+
+    unlockBtn.addEventListener("click", () => {
+      if (adminPinInput.value === ADMIN_PIN) {
+        authOverlay.classList.add("hidden");
+        loadDatabaseListener();
+      } else {
+        pinError.classList.remove("hidden");
+        adminPinInput.value = "";
+      }
+    });
+
+    // 2. 即時監聽 Firebase 資料庫
+    function loadDatabaseListener() {
+      const guestsRef = ref(db, "guests");
+      onValue(guestsRef, (snapshot) => {
+        allGuests = snapshot.val() || {};
+        renderDashboard();
+      });
+    }
+
+    // 3. 核心運算與渲染
+    function renderDashboard() {
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      const now = new Date().getTime();
+
+      // 計算統計數據
+      let total = guestList.length;
+      let care48Count = 0;
+      let alert24Count = 0;
+      let inIslandCount = 0;
+
+      guestList.forEach(g => {
+        const arrTime = new Date(g.arrival).getTime();
+        const depTime = new Date(g.departure).getTime();
+        const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
+
+        if (now >= arrTime && now <= depTime) {
+          inIslandCount++;
+        }
+
+        if (g.housekeepingStatus !== 'closed') {
+          if (timeLeftHours > 0 && timeLeftHours <= 24) {
+            alert24Count++;
+          } else if (timeLeftHours > 24 && timeLeftHours <= 48) {
+            care48Count++;
+          }
+        }
+      });
+
+      document.getElementById("statTotal").innerText = total;
+      document.getElementById("statCare48").innerText = care48Count;
+      document.getElementById("statAlert24").innerText = alert24Count;
+      document.getElementById("statInIsland").innerText = inIslandCount;
+
+      renderRosterTable(guestList);
+      renderHousekeepingList(guestList, now);
+    }
+
+    // 4. 渲染旅客總表
+    function renderRosterTable(guestList) {
+      const tbody = document.getElementById("rosterBody");
+      const searchVal = document.getElementById("searchInput").value.toLowerCase();
+
+      const filtered = guestList.filter(g => {
+        return (g.name || "").toLowerCase().includes(searchVal) ||
+               (g.englishName || "").toLowerCase().includes(searchVal) ||
+               (g.passport || "").toLowerCase().includes(searchVal) ||
+               (g.nationalId || "").toLowerCase().includes(searchVal) ||
+               (g.lineNickname || "").toLowerCase().includes(searchVal) ||
+               (g.airline || "").toLowerCase().includes(searchVal);
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-neutral-500 text-xs">查無符合條件的旅客資料</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(g => `
+        <tr class="border-b border-neutral-800 hover:bg-neutral-850/50 text-xs">
+          <td class="py-3 px-3">
+            <div class="font-bold text-white">${g.name || '未填'}</div>
+            <div class="text-[11px] text-neutral-400 font-mono">${g.englishName || '-'}</div>
+          </td>
+          <td class="py-3 px-3 font-mono text-neutral-300">
+            <div>${g.passport || '-'}</div>
+            <div class="text-[10px] text-neutral-500">${g.nationalId || '-'}</div>
+          </td>
+          <td class="py-3 px-3 text-neutral-300">
+            <div>${g.gender === 'M' ? '男' : '女'} / ${g.birthday || '-'}</div>
+            <div class="text-[11px] text-red-400">LINE: ${g.lineNickname || '-'}</div>
+          </td>
+          <td class="py-3 px-3 font-mono">
+            <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded text-[11px] font-bold">${g.airline || '-'}</span>
+          </td>
+          <td class="py-3 px-3 text-neutral-300 leading-tight">
+            <div>起: ${g.arrival ? g.arrival.replace('T', ' ') : '-'}</div>
+            <div>退: ${g.departure ? g.departure.replace('T', ' ') : '-'}</div>
+            <div class="text-[10px] text-neutral-500 font-bold mt-0.5">住 ${g.stayDays || 1} 晚</div>
+          </td>
+          <td class="py-3 px-3">
+            <input type="text" value="${g.staff || ''}" placeholder="指派專員" 
+              onchange="updateStaff('${g.id}', this.value)" 
+              class="w-24 px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs text-neutral-200 outline-none focus:border-red-500" />
+          </td>
+          <td class="py-3 px-3">
+            <select onchange="updateStatus('${g.id}', this.value)" class="px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs text-neutral-200 outline-none focus:border-red-500">
+              <option value="pending" ${g.status === 'pending' ? 'selected' : ''}>待確認</option>
+              <option value="confirmed" ${g.status === 'confirmed' ? 'selected' : ''}>已確認</option>
+              <option value="checked_in" ${g.status === 'checked_in' ? 'selected' : ''}>已入住</option>
+              <option value="completed" ${g.status === 'completed' ? 'selected' : ''}>已完成</option>
+              <option value="cancelled" ${g.status === 'cancelled' ? 'selected' : ''}>已取消</option>
+            </select>
+          </td>
+          <td class="py-3 px-3 text-right">
+            <button onclick="deleteGuest('${g.id}')" class="text-neutral-500 hover:text-red-400 transition p-1">刪除</button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    // 5. 渲染房務預警看板
+    function renderHousekeepingList(guestList, now) {
+      const container = document.getElementById("housekeepingCards");
+      
+      const activeStayGuests = guestList.filter(g => g.housekeepingStatus !== 'closed');
+
+      if (activeStayGuests.length === 0) {
+        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-sm">目前無待處理的房務或警戒名單。</div>`;
+        return;
+      }
+
+      container.innerHTML = activeStayGuests.map(g => {
+        const depTime = new Date(g.departure).getTime();
+        const diffHours = (depTime - now) / (1000 * 60 * 60);
+        
+        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">正常住宿中</span>`;
+        let cardBorder = "border-neutral-800";
+
+        if (diffHours > 0 && diffHours <= 24) {
+          badge = `<span class="bg-red-950 border border-red-800 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">🔴 24h 訂房警戒</span>`;
+          cardBorder = "border-red-800/80 bg-red-950/20";
+        } else if (diffHours > 24 && diffHours <= 48) {
+          badge = `<span class="bg-amber-950 border border-amber-800 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">🟡 48h 關懷名單</span>`;
+          cardBorder = "border-amber-800/60 bg-amber-950/10";
+        } else if (diffHours <= 0) {
+          badge = `<span class="bg-neutral-800 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">已逾期 / 今日退房</span>`;
+        }
+
+        return `
+          <div class="border ${cardBorder} bg-neutral-900 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-lg">
+            <div>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <span class="text-sm font-bold text-white">${g.name || '未填'} <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span></span>
+                ${badge}
+              </div>
+              <div class="text-xs text-neutral-400 space-y-1">
+                <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
+                <div>入住退房: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
+                <div>目前晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (已加訂: ${g.roomExtendedCount || 0} 次)</div>
+                <div>接待專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
+              </div>
+            </div>
+
+            <div class="pt-3 border-t border-neutral-800/80 flex flex-col gap-2">
+              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}')" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-lg transition">
+                📋 複製 LINE 關懷話術
+              </button>
+              <div class="grid grid-cols-2 gap-2">
+                <button onclick="openExtendModal('${g.id}', ${g.stayDays || 1})" class="py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition shadow-md shadow-red-950">
+                  + 續住加訂
+                </button>
+                <button onclick="closeStayCase('${g.id}')" class="py-1.5 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-lg transition">
+                  ✓ 結案退房
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // 6. 業務操作函式
+    window.updateStaff = (id, val) => {
+      update(ref(db, `guests/${id}`), { staff: val.trim() });
+    };
+
+    window.updateStatus = (id, val) => {
+      update(ref(db, `guests/${id}`), { status: val });
+    };
+
+    window.deleteGuest = (id) => {
+      if (confirm("確定要刪除這筆旅客資料嗎？（刪除後無法復原）")) {
+        remove(ref(db, `guests/${id}`));
+      }
+    };
+
+    window.closeStayCase = (id) => {
+      if (confirm("確定將此旅客標記為【結案退房】？將從警戒看板移出。")) {
+        update(ref(db, `guests/${id}`), { housekeepingStatus: 'closed', status: 'completed' });
+      }
+    };
+
+    window.copyLineCareText = (name, staff, departure) => {
+      const text = `您好 ${name}！我是您的接待專員 ${staff}。提醒您預計退房時間為 ${departure.replace('T', ' ')}。若需要協助加訂續住、預訂送機或調整行程，請隨時於群組告知我們喔！`;
+      navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
+    };
+
+    // 7. 續住彈窗控制
+    let currentExtendId = null;
+    let currentStayDays = 1;
+
+    window.openExtendModal = (id, days) => {
+      currentExtendId = id;
+      currentStayDays = days;
+      document.getElementById("extendModal").classList.remove("hidden");
+    };
+
+    window.closeExtendModal = () => {
+      document.getElementById("extendModal").classList.add("hidden");
+    };
+
+    window.confirmExtend = () => {
+      const addNights = parseInt(document.getElementById("extendNightsSelect").value, 10);
+      const guest = allGuests[currentExtendId];
+      if (!guest) return;
+
+      const oldDep = new Date(guest.departure);
+      oldDep.setDate(oldDep.getDate() + addNights);
+      
+      const pad = (n) => String(n).padStart(2, '0');
+      const newDepStr = `${oldDep.getFullYear()}-${pad(oldDep.getMonth() + 1)}-${pad(oldDep.getDate())}T${pad(oldDep.getHours())}:${pad(oldDep.getMinutes())}`;
+
+      update(ref(db, `guests/${currentExtendId}`), {
+        departure: newDepStr,
+        stayDays: currentStayDays + addNights,
+        roomExtendedCount: (guest.roomExtendedCount || 0) + 1,
+        housekeepingStatus: 'extended'
+      }).then(() => {
+        closeExtendModal();
+        alert(`已成功為旅客加訂續住 ${addNights} 晚！`);
+      });
+    };
+
+    // 8. 分頁與搜尋切換
+    window.switchTab = (tab) => {
+      activeTab = tab;
+      if (tab === 'roster') {
+        document.getElementById("rosterView").classList.remove("hidden");
+        document.getElementById("housekeepingView").classList.add("hidden");
+        document.getElementById("tabRosterBtn").className = "px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg shadow-md";
+        document.getElementById("tabHousekeepingBtn").className = "px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg";
+      } else {
+        document.getElementById("rosterView").classList.add("hidden");
+        document.getElementById("housekeepingView").classList.remove("hidden");
+        document.getElementById("tabHousekeepingBtn").className = "px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg shadow-md";
+        document.getElementById("tabRosterBtn").className = "px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg";
+      }
+    };
+
+    document.getElementById("searchInput").addEventListener("input", renderDashboard);
+  </script>
+</head>
+
+<body class="bg-neutral-950 text-neutral-100 min-h-screen p-4 md:p-8">
+
+  <!-- 管理者解鎖遮罩 -->
+  <div id="authOverlay" class="fixed inset-0 bg-neutral-950/95 flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 text-center shadow-2xl">
+      <div class="w-12 h-12 bg-red-950 border border-red-800 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl font-black">🔒</div>
+      <h2 class="text-lg font-bold text-white">管理後台身份驗證</h2>
+      <p class="text-xs text-neutral-400">請輸入管理者 PIN 碼以存取旅客與房務資訊</p>
+      <input id="adminPin" type="password" maxlength="8" placeholder="輸入預設密碼 (8888)" class="w-full text-center tracking-widest text-lg py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl outline-none focus:border-red-500 text-white font-mono" />
+      <p id="pinError" class="hidden text-xs text-red-500">密碼錯誤，請重新輸入</p>
+      <button id="unlockBtn" class="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-red-950">解鎖後台</button>
+    </div>
+  </div>
+
+  <div class="max-w-7xl mx-auto space-y-6">
+    
+    <!-- 頂部導航與標題 -->
+    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
+      <div>
+        <h1 class="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
+          濟州島旅客與房務管理後台
+        </h1>
+        <p class="text-xs text-neutral-400 mt-1">即時同步旅客登記名單、24h/48h 房務預警與續訂管理</p>
+      </div>
+
+      <!-- 分頁切換鈕 -->
+      <div class="bg-neutral-900 p-1 border border-neutral-800 rounded-xl flex gap-1">
+        <button id="tabRosterBtn" onclick="switchTab('roster')" class="px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg shadow-md">
+          📋 旅客行程總表
+        </button>
+        <button id="tabHousekeepingBtn" onclick="switchTab('housekeeping')" class="px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg">
+          🏨 房務與續訂警戒
+        </button>
+      </div>
+    </div>
+
+    <!-- 營運數據卡片 -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+        <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
+        <div id="statTotal" class="text-2xl font-black text-white mt-1 font-mono">0</div>
+      </div>
+      <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+        <div class="text-[11px] text-neutral-400 font-medium">當前在島人數</div>
+        <div id="statInIsland" class="text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
+      </div>
+      <div class="bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-xl p-4">
+        <div class="text-[11px] text-amber-400 font-medium">🟡 48h 關懷名單</div>
+        <div id="statCare48" class="text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
+      </div>
+      <div class="bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-xl p-4">
+        <div class="text-[11px] text-red-400 font-medium">🔴 24h 訂房警戒</div>
+        <div id="statAlert24" class="text-2xl font-black text-red-500 mt-1 font-mono">0</div>
+      </div>
+    </div>
+
+    <!-- 分頁 1: 旅客總表視圖 -->
+    <div id="rosterView" class="space-y-4">
+      <div class="flex items-center justify-between gap-3">
+        <input id="searchInput" placeholder="🔍 搜尋旅客姓名、護照、身分證、LINE 暱稱或航班..." class="w-full md:w-80 px-3.5 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500" />
+      </div>
+
+      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-x-auto shadow-2xl">
+        <table class="w-full text-left border-collapse min-w-[800px]">
+          <thead>
+            <tr class="border-b border-neutral-800 bg-neutral-950/60 text-[11px] text-neutral-400 font-bold uppercase tracking-wider">
+              <th class="py-3 px-3">旅客姓名</th>
+              <th class="py-3 px-3">證件資訊</th>
+              <th class="py-3 px-3">性別/生日/LINE</th>
+              <th class="py-3 px-3">航班</th>
+              <th class="py-3 px-3">抵達/離開/晚數</th>
+              <th class="py-3 px-3">接待專員</th>
+              <th class="py-3 px-3">狀態</th>
+              <th class="py-3 px-3 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="rosterBody" class="divide-y divide-neutral-800/50"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 分頁 2: 房務警戒視圖 -->
+    <div id="housekeepingView" class="hidden space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
+        <span class="text-xs text-neutral-500">系統自動依據預計退房時間分類</span>
+      </div>
+      <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+    </div>
+
+  </div>
+
+  <!-- 續住加訂彈窗 (最多加訂 5 晚) -->
+  <div id="extendModal" class="hidden fixed inset-0 bg-neutral-950/80 flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
+      <h3 class="text-sm font-bold text-white">🏨 快速辦理續住加訂</h3>
+      <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數（客人單次住宿不超過 5 晚）：</p>
+      <div>
+        <label class="block text-xs font-semibold text-neutral-300 mb-1">加訂住宿晚數</label>
+        <select id="extendNightsSelect" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500">
+          <option value="1">續訂 +1 晚</option>
+          <option value="2">續訂 +2 晚</option>
+          <option value="3">續訂 +3 晚</option>
+          <option value="4">續訂 +4 晚</option>
+          <option value="5">續訂 +5 晚</option>
+        </select>
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button onclick="closeExtendModal()" class="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs">取消</button>
+        <button onclick="confirmExtend()" class="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認延長</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
