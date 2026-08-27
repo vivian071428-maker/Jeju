@@ -40,6 +40,7 @@
     const genderSelect = document.getElementById("gender");
     const passportError = document.getElementById("passportError");
     
+    const referrerInput = document.getElementById("referrer");
     const lineNicknameInput = document.getElementById("lineNickname");
     const airlineInput = document.getElementById("airline");
     const arrivalInput = document.getElementById("arrival");
@@ -309,6 +310,7 @@
           nationalId: nationalIdInput.value.trim(),
           birthday: birthdayInput.value,
           gender: genderSelect.value,
+          referrer: referrerInput.value.trim(), // 推薦人 (選填)
           lineNickname: lineNicknameInput.value.trim(),
           airline: airlineInput.value.trim(),
           arrival: arrivalInput.value,
@@ -349,7 +351,6 @@
     };
   </script>
   <style>
-    /* 修正 iOS 原生日期選擇器高度與字型，保持簡潔單行 */
     input[type="datetime-local"],
     input[type="date"] {
       -webkit-appearance: none;
@@ -387,7 +388,7 @@
             <span class="text-xs font-bold text-red-400 flex items-center gap-1.5 tracking-wide">
               📷 護照一鍵自動填入
             </span>
-            <label for="passportFile" class="text-xs bg-red-600 hover:bg-red-700 active:scale-95 text-white px-3.5 py-1.5 rounded-lg cursor-pointer font-semibold transition shadow-md shadow-red-950">
+            <label for="passportFile" class="text-xs bg-red-600 hover:bg-red-700 active:scale-95 text-white px-3 py-1.5 rounded-lg cursor-pointer font-semibold transition shadow-md shadow-red-950">
               拍照 / 上傳護照
             </label>
             <input id="passportFile" type="file" accept="image/*" class="hidden" />
@@ -436,6 +437,15 @@
               <option value="F" class="bg-neutral-900 text-white">女 (Female)</option>
             </select>
           </div>
+        </div>
+
+        <!-- 推薦人 (選填) -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-xs font-semibold text-neutral-300">推薦人姓名 / 介紹人</label>
+            <span class="text-[10px] text-neutral-500">（選填）</span>
+          </div>
+          <input id="referrer" placeholder="若有介紹人或推薦好友請填寫姓名" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 text-neutral-100 transition" />
         </div>
 
         <!-- LINE 社群暱稱 -->
