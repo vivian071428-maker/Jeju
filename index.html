@@ -11,7 +11,6 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 拆分 API Key 避免 GitHub 安全掃描觸發警報
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
 
@@ -43,14 +42,17 @@
     
     const lineNicknameInput = document.getElementById("lineNickname");
     const airlineInput = document.getElementById("airline");
-    const arrivalInput = document.getElementById("arrival");
-    const departureInput = document.getElementById("departure");
-    const arrivalError = document.getElementById("arrivalError");
-    const departureError = document.getElementById("departureError");
+    
+    // 日期拆分元件
+    const arrDateInput = document.getElementById("arrDate");
+    const arrTimeInput = document.getElementById("arrTime");
+    const stayNightsSelect = document.getElementById("stayNights");
+    const departurePreview = document.getElementById("departurePreview");
+    
     const passportFileInput = document.getElementById("passportFile");
     const ocrStatus = document.getElementById("ocrStatus");
 
-    // 1. 初始化專屬 MRZ 英數 Worker
+    // 1. 初始化 MRZ Worker
     let worker = null;
     async function initWorker() {
       if (!worker) {
@@ -64,7 +66,6 @@
     }
     initWorker();
 
-    // 2. 專門精確裁切護照底部 25% MRZ 區域並二值化
     function preprocessPassportMRZ(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -101,7 +102,6 @@
       });
     }
 
-    // 3. ICAO 9303 固定索引與防呆解析
     function parseMRZText(raw) {
       const lines = raw.split('\n')
         .map(l => l.replace(/[^A-Z0-9<]/g, '').trim())
@@ -131,7 +131,6 @@
         nationalId: ''
       };
 
-      // 第一排：英文姓名
       if (line1) {
         let nameIdx = line1.indexOf('TWN') !== -1 ? line1.indexOf('TWN') + 3 : line1.indexOf('P<') + 5;
         let nameChunk = line1.substring(nameIdx);
@@ -143,14 +142,11 @@
         }
       }
 
-      // 第二排：護照號碼、生日、性別、身分證
       if (line2) {
-        // [A] 護照號碼（前 9 碼，修正常見混淆字元）
         let pChunk = line2.substring(0, 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
         let pMatch = pChunk.match(/[0-9]{8,9}/);
         if (pMatch) parsed.passportNumber = pMatch[0];
 
-        // [B] 出生年月日與性別（TWN 後 6 碼日期）
         let twnPos = line2.indexOf('TWN');
         if (twnPos !== -1 && line2.length >= twnPos + 9) {
           let dob = line2.substring(twnPos + 3, twnPos + 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
@@ -166,7 +162,6 @@
           if (s === 'F' || s === 'M') parsed.gender = s;
         }
 
-        // [C] 身分證字號（末段 1 碼英文 + 9 碼數字，嚴格校驗第 2 碼為 1 或 2）
         let idSection = line2.substring(15);
         let idMatch = idSection.match(/([A-Z][12][0-9]{8})/);
         if (idMatch) {
@@ -178,7 +173,6 @@
       return parsed;
     }
 
-    // 4. 上傳觸發 OCR 辨識
     passportFileInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -237,40 +231,26 @@
       }
     });
 
-    // 5. 日期與格式防呆校驗
-    function getNowString() {
-      const d = new Date();
+    // 2. 日期與離開時間自動推算
+    function updateDeparturePreview() {
+      if (!arrDateInput.value) {
+        departurePreview.innerText = "請先選擇抵達日期";
+        return;
+      }
+      const nights = parseInt(stayNightsSelect.value, 10) || 1;
+      const d = new Date(arrDateInput.value);
+      d.setDate(d.getDate() + nights);
+      
       const pad = (n) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      const depDateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      const timeStr = arrTimeInput.value || "12:00";
+      
+      departurePreview.innerHTML = `預計退房離開時間：<span class="text-white font-bold font-mono">${depDateStr} ${timeStr}</span> (共 ${nights} 晚)`;
     }
 
-    arrivalInput.min = getNowString();
-    departureInput.min = getNowString();
-
-    arrivalInput.addEventListener("change", () => {
-      const now = new Date();
-      const arrivalDate = new Date(arrivalInput.value);
-      if (arrivalInput.value && arrivalDate < now) {
-        arrivalError.textContent = "抵達時間不能選擇過去的時間！";
-        arrivalError.classList.remove("hidden");
-        arrivalInput.value = "";
-      } else {
-        arrivalError.classList.add("hidden");
-        if (arrivalInput.value) departureInput.min = arrivalInput.value;
-      }
-    });
-
-    departureInput.addEventListener("change", () => {
-      const arrivalDate = new Date(arrivalInput.value);
-      const departureDate = new Date(departureInput.value);
-      if (!arrivalInput.value || departureDate <= arrivalDate) {
-        departureError.textContent = "離開時間必須晚於抵達時間！";
-        departureError.classList.remove("hidden");
-        departureInput.value = "";
-      } else {
-        departureError.classList.add("hidden");
-      }
-    });
+    arrDateInput.addEventListener("change", updateDeparturePreview);
+    arrTimeInput.addEventListener("change", updateDeparturePreview);
+    stayNightsSelect.addEventListener("change", updateDeparturePreview);
 
     function validatePassport(val) {
       const valid = /^[A-Z0-9]{6,9}$/.test(val);
@@ -304,11 +284,19 @@
       e.target.value = e.target.value.toUpperCase();
     });
 
-    // 6. 送出表單資料
+    // 3. 送出表單資料
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const passportVal = passportInput.value.trim();
       if (!validatePassport(passportVal)) return passportInput.focus();
+
+      const nights = parseInt(stayNightsSelect.value, 10) || 1;
+      const arrivalStr = `${arrDateInput.value}T${arrTimeInput.value || '12:00'}`;
+
+      const depDate = new Date(arrDateInput.value);
+      depDate.setDate(depDate.getDate() + nights);
+      const pad = (n) => String(n).padStart(2, '0');
+      const departureStr = `${depDate.getFullYear()}-${pad(depDate.getMonth() + 1)}-${pad(depDate.getDate())}T${arrTimeInput.value || '12:00'}`;
 
       submitBtn.innerText = "資料送出中...";
       submitBtn.disabled = true;
@@ -323,12 +311,14 @@
           gender: genderSelect.value,
           lineNickname: lineNicknameInput.value.trim(),
           airline: airlineInput.value.trim(),
-          arrival: arrivalInput.value,
-          departure: departureInput.value,
-          stayDays: Math.ceil(Math.abs(new Date(departureInput.value) - new Date(arrivalInput.value)) / (1000 * 60 * 60 * 24)) || 1,
+          arrival: arrivalStr,
+          departure: departureStr,
+          stayDays: nights,
+          points: 0,
           staff: "",
           roomExtendedCount: 0,
           status: "pending",
+          housekeepingStatus: "normal",
           createdAt: Date.now()
         });
 
@@ -347,91 +337,87 @@
         form.reset();
         ocrStatus.classList.add("hidden");
         passportError.classList.add("hidden");
-        arrivalError.classList.add("hidden");
-        departureError.classList.add("hidden");
-        arrivalInput.min = getNowString();
-        departureInput.min = getNowString();
+        departurePreview.innerText = "請先選擇抵達日期與住宿晚數";
       }
       successContainer.classList.add("hidden");
       formContainer.classList.remove("hidden");
     };
   </script>
   <style>
-    input[type="datetime-local"]::-webkit-calendar-picker-indicator,
-    input[type="date"]::-webkit-calendar-picker-indicator {
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="time"]::-webkit-calendar-picker-indicator {
       filter: invert(1);
       cursor: pointer;
     }
   </style>
 </head>
 
-<body class="bg-neutral-950 text-neutral-100 min-h-screen flex items-center justify-center p-4 selection:bg-red-600 selection:text-white">
-  <div class="bg-neutral-900 max-w-lg w-full rounded-2xl shadow-2xl border border-neutral-800 p-6 md:p-8 relative overflow-hidden">
+<body class="bg-neutral-950 text-neutral-100 min-h-screen flex items-center justify-center p-3 md:p-6 selection:bg-red-600 selection:text-white pb-12">
+  <div class="bg-neutral-900 max-w-lg w-full rounded-2xl shadow-2xl border border-neutral-800 p-5 md:p-7 relative overflow-hidden">
     
-    <!-- 頂部質感紅色裝飾光條 -->
     <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-red-600"></div>
 
-    <div id="formContainer" class="space-y-6">
-      <div class="border-b border-neutral-800 pb-4">
+    <div id="formContainer" class="space-y-5">
+      <div class="border-b border-neutral-800 pb-3.5">
         <div class="flex items-center gap-2">
           <span class="inline-block w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
-          <h1 class="text-2xl font-black tracking-tight text-white">濟州島行程資料登記</h1>
+          <h1 class="text-xl sm:text-2xl font-black tracking-tight text-white">濟州島行程資料登記</h1>
         </div>
-        <p class="text-xs text-neutral-400 mt-1.5">請填寫真實航班與護照資料，以利接待團隊安排接送與房務服務。</p>
+        <p class="text-[11px] text-neutral-400 mt-1">請填寫真實航班與護照資料，以利接待團隊安排接送與房務服務。</p>
       </div>
 
-      <form id="guestForm" class="space-y-4">
+      <form id="guestForm" class="space-y-3.5">
         
         <!-- 護照拍照 OCR 快速辨識區 -->
-        <div class="bg-gradient-to-br from-neutral-900 to-red-950/40 border border-red-900/50 rounded-xl p-4 space-y-2.5 shadow-inner">
+        <div class="bg-gradient-to-br from-neutral-900 to-red-950/40 border border-red-900/50 rounded-xl p-3.5 space-y-2 shadow-inner">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-red-400 flex items-center gap-1.5 tracking-wide">
               📷 護照一鍵自動填入
             </span>
-            <label for="passportFile" class="text-xs bg-red-600 hover:bg-red-700 active:scale-95 text-white px-3.5 py-1.5 rounded-lg cursor-pointer font-semibold transition shadow-md shadow-red-950">
+            <label for="passportFile" class="text-xs bg-red-600 hover:bg-red-700 active:scale-95 text-white px-3 py-1.5 rounded-lg cursor-pointer font-semibold transition shadow-md shadow-red-950">
               拍照 / 上傳護照
             </label>
             <input id="passportFile" type="file" accept="image/*" class="hidden" />
           </div>
-          <p class="text-[11px] text-neutral-400 leading-relaxed">拍照上傳後將自動辨識英文姓名、護照號碼、身分證、生日與性別；亦可直接於下方手動輸入。</p>
-          <div id="ocrStatus" class="hidden text-xs pt-1"></div>
+          <p class="text-[10px] text-neutral-400 leading-relaxed">拍照上傳後將自動辨識英文姓名、護照號碼、身分證、生日與性別；亦可手動輸入。</p>
+          <div id="ocrStatus" class="hidden text-xs pt-0.5"></div>
         </div>
 
         <!-- 中文真實姓名 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">中文真實姓名 *</label>
-          <input id="name" required placeholder="請填寫中文真實姓名（例：林美華）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm text-neutral-100 placeholder:text-neutral-600 transition" />
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">中文真實姓名 *</label>
+          <input id="name" required placeholder="請填寫中文真實姓名（例：林美華）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 placeholder:text-neutral-600 transition" />
         </div>
 
         <!-- 護照英文姓名 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">護照英文姓名 *</label>
-          <input id="englishName" required placeholder="例：LIN, MEI-HUA" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
-          <p class="text-[11px] text-neutral-500 mt-1">※ 請依照護照格式填寫（SURNAME, GIVEN NAME）。</p>
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">護照英文姓名 *</label>
+          <input id="englishName" required placeholder="例：LIN, MEI-HUA" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
+          <p class="text-[10px] text-neutral-500 mt-0.5">※ 請依照護照格式填寫（SURNAME, GIVEN NAME）。</p>
         </div>
 
         <!-- 護照號碼 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">護照號碼 *</label>
-          <input id="passport" maxlength="9" required placeholder="請輸入 6~9 碼護照號碼（例：888800088）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm font-mono tracking-widest placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">護照號碼 *</label>
+          <input id="passport" maxlength="9" required placeholder="請輸入 6~9 碼護照號碼（例：888800088）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono tracking-widest placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
           <p id="passportError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
         </div>
 
         <!-- 身分證字號 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">身分證字號 / 證件號 *</label>
-          <input id="nationalId" maxlength="10" required placeholder="例：A234567893" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm font-mono tracking-wider placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">身分證字號 / 證件號 *</label>
+          <input id="nationalId" maxlength="10" required placeholder="例：A234567893" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono tracking-wider placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
         </div>
 
         <!-- 出生年月日 & 性別 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-2.5">
           <div>
-            <label class="block text-xs font-semibold text-neutral-300 mb-1.5">出生年月日 *</label>
-            <input id="birthday" type="date" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm text-neutral-100 transition" />
+            <label class="block text-xs font-semibold text-neutral-300 mb-1">出生年月日 *</label>
+            <input id="birthday" type="date" required class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs text-neutral-100 transition" />
           </div>
           <div>
-            <label class="block text-xs font-semibold text-neutral-300 mb-1.5">性別 *</label>
-            <select id="gender" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm text-neutral-100 transition">
+            <label class="block text-xs font-semibold text-neutral-300 mb-1">性別 *</label>
+            <select id="gender" required class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs text-neutral-100 transition">
               <option value="" class="bg-neutral-900 text-neutral-400">請選擇性別</option>
               <option value="M" class="bg-neutral-900 text-white">男 (Male)</option>
               <option value="F" class="bg-neutral-900 text-white">女 (Female)</option>
@@ -441,45 +427,65 @@
 
         <!-- LINE 社群暱稱 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">LINE 社群中的暱稱 *</label>
-          <input id="lineNickname" required placeholder="請輸入您在濟州島交流群內顯示的暱稱" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm placeholder:text-neutral-600 text-neutral-100 transition" />
-          <p class="text-[11px] text-neutral-500 mt-1">※ 方便接待專員於群組內即時聯繫確認接送細節。</p>
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">LINE 社群中的暱稱 *</label>
+          <input id="lineNickname" required placeholder="請輸入您在濟州島交流群內顯示的暱稱" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 text-neutral-100 transition" />
+          <p class="text-[10px] text-neutral-500 mt-0.5">※ 方便接待專員於群組內即時聯繫確認接送細節。</p>
         </div>
 
         <!-- 抵達航班代碼 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">抵達航班代碼 *</label>
-          <input id="airline" required placeholder="例：KE123、TW701、7C2686" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm placeholder:text-neutral-600 uppercase tracking-wide text-neutral-100 transition" />
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">抵達航班代碼 *</label>
+          <input id="airline" required placeholder="例：KE123、TW701、7C2686" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase tracking-wide text-neutral-100 transition" />
         </div>
 
-        <!-- 抵達時間 -->
+        <!-- 抵達日期與時間（拆分並排，解決 iPhone 擁擠問題） -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">預計抵達濟州島時間 *</label>
-          <input id="arrival" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm text-neutral-100 transition" />
-          <p id="arrivalError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">預計抵達濟州島日期與時間 *</label>
+          <div class="grid grid-cols-2 gap-2">
+            <input id="arrDate" type="date" required class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs text-neutral-100 transition" />
+            <input id="arrTime" type="time" required value="12:00" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs text-neutral-100 transition" />
+          </div>
         </div>
 
-        <!-- 離開時間 -->
+        <!-- 預計住宿晚數下拉選單 -->
         <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1.5">預計離開濟州島時間 *</label>
-          <input id="departure" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 text-sm text-neutral-100 transition" />
-          <p id="departureError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">預計住宿晚數 *</label>
+          <select id="stayNights" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 transition font-medium">
+            <option value="1">住宿 1 晚</option>
+            <option value="2">住宿 2 晚</option>
+            <option value="3">住宿 3 晚</option>
+            <option value="4">住宿 4 晚</option>
+            <option value="5">住宿 5 晚</option>
+            <option value="6">住宿 6 晚</option>
+            <option value="7">住宿 7 晚 (1 週)</option>
+            <option value="8">住宿 8 晚</option>
+            <option value="9">住宿 9 晚</option>
+            <option value="10">住宿 10 晚</option>
+            <option value="14">住宿 14 晚 (2 週)</option>
+            <option value="21">住宿 21 晚 (3 週)</option>
+            <option value="30">住宿 30 晚 (1 個月)</option>
+          </select>
+          
+          <!-- 自動推算離開時間即時預覽 -->
+          <div id="departurePreview" class="mt-1.5 p-2 bg-neutral-950/70 border border-neutral-800 rounded-xl text-[11px] text-neutral-400">
+            請先選擇抵達日期與住宿晚數
+          </div>
         </div>
 
-        <button id="submitBtn" type="submit" class="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-red-950/60 mt-2">
+        <button id="submitBtn" type="submit" class="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-red-950/60 mt-3">
           確認送出資料
         </button>
       </form>
     </div>
 
     <!-- 送出成功畫面 -->
-    <div id="successContainer" class="hidden text-center py-8 space-y-6">
-      <div class="w-16 h-16 bg-red-950/80 border border-red-800/80 text-red-400 rounded-full flex items-center justify-center mx-auto text-2xl font-black shadow-lg shadow-red-950">✓</div>
+    <div id="successContainer" class="hidden text-center py-8 space-y-5">
+      <div class="w-14 h-14 bg-red-950/80 border border-red-800/80 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl font-black shadow-lg shadow-red-950">✓</div>
       <div>
-        <h2 class="text-xl font-bold text-white tracking-tight">行程資料已成功送出！</h2>
-        <p class="text-neutral-400 text-xs mt-2 leading-relaxed max-w-xs mx-auto">接待團隊已收到您的航班與預約資訊，我們將在專屬 LINE 群中與您確認接機細節。</p>
+        <h2 class="text-lg font-bold text-white tracking-tight">行程資料已成功送出！</h2>
+        <p class="text-neutral-400 text-xs mt-1.5 leading-relaxed max-w-xs mx-auto">接待團隊已收到您的預約資訊，我們將在專屬 LINE 群中與您確認接機與房務細節。</p>
       </div>
-      <div class="pt-2 flex flex-col gap-2.5">
+      <div class="pt-2 flex flex-col gap-2">
         <button onclick="resetAndReturn(false)" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium rounded-xl text-xs transition border border-neutral-700">
           資料有誤？返回修改剛才送出的內容
         </button>
