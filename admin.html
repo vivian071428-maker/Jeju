@@ -64,7 +64,7 @@
       return str.substring(0, visibleChars) + '****';
     }
 
-    // 3. 客戶分析運算引擎 (CRM Profiling)
+    // 3. 客戶分析運算引擎
     function buildClientProfileMap(guestList) {
       const profileMap = {};
 
@@ -117,26 +117,25 @@
       return profileMap;
     }
 
-    // 核心房務倒數運算：以離開/退房時間計算倒數
-    // 距離退房 0h ~ 24h: 倒數第 1 晚 (訂房警戒)
-    // 距離退房 24h ~ 48h: 倒數第 2 晚 (關懷名單)
+    // 房務倒數運算
     function getHousekeepingAlertLevel(g, now) {
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
         return 'closed';
       }
 
       const arrTime = new Date(g.arrival).getTime();
-      const depTime = new Date(g.departure).getTime();
+      const depTime = g.departure ? new Date(g.departure).getTime() : 0;
 
       if (now < arrTime) return 'upcoming';
+      if (!depTime || g.isDepartureUncertain) return 'normal';
       if (now > depTime) return 'overdue';
 
       const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
 
       if (timeLeftHours <= 24) {
-        return 'alert24'; // 倒數第 1 晚 (明天退房，今天必須續房)
+        return 'alert24';
       } else if (timeLeftHours <= 48) {
-        return 'care48';  // 倒數第 2 晚 (提前關懷)
+        return 'care48';
       } else {
         return 'normal';
       }
@@ -158,9 +157,9 @@
 
       guestList.forEach(g => {
         const arrTime = new Date(g.arrival).getTime();
-        const depTime = new Date(g.departure).getTime();
+        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
 
-        if (now >= arrTime && now <= depTime) {
+        if (now >= arrTime && (g.isDepartureUncertain || !depTime || now <= depTime)) {
           inIslandCount++;
         }
 
@@ -226,12 +225,12 @@
 
       let filtered = guestList.filter(g => {
         const arrTime = new Date(g.arrival).getTime();
-        const depTime = new Date(g.departure).getTime();
+        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
         const level = getHousekeepingAlertLevel(g, now);
         const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
         const cType = profileMap[key]?.clientType || 'other';
 
-        if (currentFilter === 'inIsland' && !(now >= arrTime && now <= depTime)) return false;
+        if (currentFilter === 'inIsland' && !(now >= arrTime && (g.isDepartureUncertain || !depTime || now <= depTime))) return false;
         if (currentFilter === 'care48' && level !== 'care48') return false;
         if (currentFilter === 'alert24' && level !== 'alert24') return false;
 
@@ -243,6 +242,7 @@
       return filtered.filter(g => {
         return (g.name || "").toLowerCase().includes(searchVal) ||
                (g.englishName || "").toLowerCase().includes(searchVal) ||
+               (g.memberId || "").toLowerCase().includes(searchVal) ||
                (g.passport || "").toLowerCase().includes(searchVal) ||
                (g.nationalId || "").toLowerCase().includes(searchVal) ||
                (g.lineNickname || "").toLowerCase().includes(searchVal) ||
@@ -286,6 +286,10 @@
           clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800/60 text-amber-300 text-[10px] font-bold">🌟 短期客戶</span>`;
         }
 
+        const departureText = g.isDepartureUncertain 
+          ? `<span class="text-amber-400 font-medium">尚未確定</span>` 
+          : (g.departure ? g.departure.replace('T', ' ') : '-');
+
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-2 border-b border-neutral-800 pb-2.5">
@@ -295,6 +299,7 @@
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
+                ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold">🆔 ${g.memberId}</span>` : ''}
                 <span class="text-[10px] text-red-500 font-normal">✎ 修改</span>
               </button>
               <div>${statusBadge}</div>
@@ -310,13 +315,13 @@
                 </div>
                 <div class="text-[11px] text-neutral-500 font-mono">身分證: ${idText}</div>
                 <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
-                <div class="text-amber-400 font-mono font-medium">🏆 結案累積點數: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(已結案: ${profile.historyVisits.length} 次 / 總預約: ${profile.allVisits.length} 次)</span></div>
+                <div class="text-amber-400 font-mono font-medium">🏆 結案累積點數: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(已結案: ${profile.historyVisits.length} 次)</span></div>
               </div>
 
               <div class="space-y-1">
                 <div>航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${g.airline || '-'}</span></div>
                 <div>抵達: <span class="text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
-                <div>離開: <span class="text-neutral-300">${g.departure ? g.departure.replace('T', ' ') : '-'}</span> <span class="text-neutral-500">(${g.stayDays || 1} 晚)</span></div>
+                <div>離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${g.isDepartureUncertain ? '天數未定' : (g.stayDays || 1) + ' 晚'})</span></div>
                 <div>本次發放點數: <span class="text-neutral-200 font-mono font-bold">${g.points || 0}</span> 點</div>
               </div>
             </div>
@@ -344,18 +349,18 @@
       }).join("");
     }
 
-    // 6. 渲染房務警戒看板 (以倒數剩餘晚數展示)
+    // 6. 渲染房務警戒看板
     function renderHousekeepingList(guestList, now, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
       let activeStayGuests = guestList.filter(g => {
         const arrTime = new Date(g.arrival).getTime();
-        const depTime = new Date(g.departure).getTime();
+        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
         const level = getHousekeepingAlertLevel(g, now);
 
         if (level === 'closed') return false;
 
-        if (currentFilter === 'inIsland') return (now >= arrTime && now <= depTime);
+        if (currentFilter === 'inIsland') return (now >= arrTime && (g.isDepartureUncertain || !depTime || now <= depTime));
         if (currentFilter === 'care48') return (level === 'care48');
         if (currentFilter === 'alert24') return (level === 'alert24');
         return true;
@@ -368,11 +373,11 @@
 
       container.innerHTML = activeStayGuests.map(g => {
         const level = getHousekeepingAlertLevel(g, now);
-        const depTime = new Date(g.departure).getTime();
-        const timeLeftHours = Math.max(0, (depTime - now) / (1000 * 60 * 60));
+        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        const timeLeftHours = depTime ? Math.max(0, (depTime - now) / (1000 * 60 * 60)) : 0;
         const nightsRemaining = Math.ceil(timeLeftHours / 24);
         
-        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">正常住宿中 (剩 ${nightsRemaining} 晚)</span>`;
+        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">正常住宿中 ${g.isDepartureUncertain ? '(未定離開日)' : `(剩 ${nightsRemaining} 晚)`}</span>`;
         let cardBorder = "border-neutral-800";
 
         if (level === 'alert24') {
@@ -388,6 +393,10 @@
         const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [], historyVisits: [] };
 
+        const departureText = g.isDepartureUncertain 
+          ? `<span class="text-amber-400 font-medium">尚未確定</span>` 
+          : (g.departure ? g.departure.split('T')[0] : '-');
+
         return `
           <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
             <div>
@@ -395,6 +404,7 @@
                 <button onclick="openEditDrawer('${g.id}')" class="text-sm font-bold text-white hover:text-red-400 transition text-left underline decoration-neutral-700 flex items-center gap-1">
                   <span>${g.name || '未填'}</span>
                   <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span>
+                  ${g.memberId ? `<span class="text-[10px] text-red-400 font-mono font-bold">#${g.memberId}</span>` : ''}
                   <span class="text-[10px] text-red-500 font-normal">✎</span>
                 </button>
                 ${badge}
@@ -402,15 +412,15 @@
               <div class="text-xs text-neutral-400 space-y-1">
                 <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '💎 長期客戶' : (profile.clientType === 'short' ? '🌟 短期客戶' : '⚪ 新客')}</span> | 累積點數: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
-                <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
-                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (剩餘約: ${Math.round(timeLeftHours)} 小時)</div>
+                <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${departureText}</span></div>
+                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.isDepartureUncertain ? '尚未確定' : (g.stayDays || 1) + ' 晚'}</span> ${!g.isDepartureUncertain && timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
                 <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
                 ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1">📌 備註: ${g.note}</div>` : ''}
               </div>
             </div>
 
             <div class="pt-3 border-t border-neutral-800/80 flex flex-col gap-2">
-              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}', ${nightsRemaining})" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
+              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure || '未定'}', ${nightsRemaining})" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
                 📋 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
@@ -439,7 +449,7 @@
       }
 
       const headers = [
-        "中文姓名", "護照英文姓名", "護照號碼", "身分證字號", "客群分類",
+        "會員編號", "中文姓名", "護照英文姓名", "護照號碼", "身分證字號", "客群分類",
         "結案累積總點數", "本次點數", "性別", "出生年月日", "LINE暱稱",
         "抵達航班", "抵達時間", "離開時間", "停留晚數", "接待專員", "狀態", "備註"
       ];
@@ -449,6 +459,7 @@
         const p = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客' };
 
         return [
+          `"${(g.memberId || '').replace(/"/g, '""')}"`,
           `"${(g.name || '').replace(/"/g, '""')}"`,
           `"${(g.englishName || '').replace(/"/g, '""')}"`,
           `"${(g.passport || '').replace(/"/g, '""')}"`,
@@ -461,8 +472,8 @@
           `"${(g.lineNickname || '').replace(/"/g, '""')}"`,
           `"${(g.airline || '').replace(/"/g, '""')}"`,
           `"${(g.arrival || '').replace('T', ' ')}"`,
-          `"${(g.departure || '').replace('T', ' ')}"`,
-          `"${g.stayDays || 1}"`,
+          `"${g.isDepartureUncertain ? '尚未確定' : (g.departure || '').replace('T', ' ')}"`,
+          `"${g.isDepartureUncertain ? '未定' : (g.stayDays || 1)}"`,
           `"${(g.staff || '').replace(/"/g, '""')}"`,
           `"${g.status || 'pending'}"`,
           `"${(g.note || '').replace(/"/g, '""')}"`
@@ -515,6 +526,7 @@
       const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
       const profile = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客', allVisits: [], historyVisits: [] };
 
+      document.getElementById("editMemberId").value = g.memberId || '';
       document.getElementById("editName").value = g.name || '';
       document.getElementById("editEnglishName").value = g.englishName || '';
       document.getElementById("editPassport").value = g.passport || '';
@@ -525,6 +537,7 @@
       document.getElementById("editAirline").value = g.airline || '';
       document.getElementById("editArrival").value = g.arrival || '';
       document.getElementById("editDeparture").value = g.departure || '';
+      document.getElementById("editDepartureUncertain").checked = !!g.isDepartureUncertain;
       document.getElementById("editStayDays").value = g.stayDays || 1;
       document.getElementById("editStaff").value = g.staff || '';
       document.getElementById("editStatus").value = g.status || 'pending';
@@ -542,7 +555,7 @@
         historyListContainer.innerHTML = profile.historyVisits.map((v, idx) => `
           <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-3 text-xs space-y-1">
             <div class="flex items-center justify-between text-neutral-300 font-medium">
-              <span>歷史行程 #${idx + 1}：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '-'}</span>
+              <span>歷史行程 #${idx + 1}：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '未定'}</span>
               <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
             </div>
             <div class="text-neutral-500 flex items-center justify-between text-[11px]">
@@ -579,7 +592,9 @@
     window.saveGuestDetails = () => {
       if (!editingGuestId) return;
 
+      const isUncertain = document.getElementById("editDepartureUncertain").checked;
       const updatedData = {
+        memberId: document.getElementById("editMemberId").value.trim().toUpperCase(),
         name: document.getElementById("editName").value.trim(),
         englishName: document.getElementById("editEnglishName").value.trim().toUpperCase(),
         passport: document.getElementById("editPassport").value.trim().toUpperCase(),
@@ -589,7 +604,8 @@
         lineNickname: document.getElementById("editLineNickname").value.trim(),
         airline: document.getElementById("editAirline").value.trim().toUpperCase(),
         arrival: document.getElementById("editArrival").value,
-        departure: document.getElementById("editDeparture").value,
+        departure: isUncertain ? "" : document.getElementById("editDeparture").value,
+        isDepartureUncertain: isUncertain,
         stayDays: parseInt(document.getElementById("editStayDays").value, 10) || 1,
         staff: document.getElementById("editStaff").value.trim(),
         status: document.getElementById("editStatus").value,
@@ -599,7 +615,7 @@
 
       update(ref(db, `guests/${editingGuestId}`), updatedData).then(() => {
         closeEditDrawer();
-        alert("資料、點數與備註已成功全面更新！");
+        alert("會員編號、資料、點數與備註已成功全面更新！");
       }).catch(err => {
         alert("儲存失敗: " + err.message);
       });
@@ -619,7 +635,8 @@
     };
 
     window.copyLineCareText = (name, staff, departure, nightsRemaining) => {
-      const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。提醒您距離預計退房時間 (${departure.replace('T', ' ')}) 僅剩約 ${nightsRemaining} 晚。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
+      const depInfo = departure === '未定' ? '尚未確定' : departure.replace('T', ' ');
+      const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。提醒您預計退房時間為 (${depInfo})。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
       navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
     };
 
@@ -641,7 +658,7 @@
       const guest = allGuests[currentExtendId];
       if (!guest) return;
 
-      const oldDep = new Date(guest.departure);
+      const oldDep = guest.departure ? new Date(guest.departure) : new Date();
       oldDep.setDate(oldDep.getDate() + addNights);
       
       const pad = (n) => String(n).padStart(2, '0');
@@ -649,6 +666,7 @@
 
       update(ref(db, `guests/${currentExtendId}`), {
         departure: newDepStr,
+        isDepartureUncertain: false,
         stayDays: currentStayDays + addNights,
         roomExtendedCount: (guest.roomExtendedCount || 0) + 1,
         housekeepingStatus: 'extended'
@@ -714,7 +732,7 @@
       </div>
     </div>
 
-    <!-- 頂部營運數據卡片 (更新為退房倒數預警名稱) -->
+    <!-- 頂部營運數據卡片 -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setCardFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
@@ -737,7 +755,7 @@
     <!-- 分頁 1: 旅客總表視圖 -->
     <div id="rosterView" class="space-y-3">
       <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
-        <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE、專員或備註..." class="w-full md:w-72 px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+        <input id="searchInput" placeholder="🔍 搜尋會員編號、姓名、護照、身分證、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
 
         <div class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
           <button id="btnClientAll" onclick="setClientTypeFilter('all')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-600 text-white shadow-sm">
@@ -773,7 +791,7 @@
 
   </div>
 
-  <!-- 點擊姓名彈出：工作人員全面修改 + 歷史紀錄 + 點數管理 Drawer 彈窗 -->
+  <!-- 點擊姓名彈出：工作人員全面修改 + 會員編號 + 歷史紀錄 + 點數管理 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       
@@ -804,6 +822,13 @@
       </div>
 
       <div class="space-y-3 text-xs">
+        
+        <!-- 會員編號輸入欄位 (工作人員專用) -->
+        <div class="bg-neutral-950 border border-red-950 p-3 rounded-xl space-y-1">
+          <label class="block text-red-400 font-bold">🆔 客戶會員編號 (工作人員專用)</label>
+          <input id="editMemberId" placeholder="例如：VIP-8801、M-1024" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white font-mono uppercase font-bold outline-none focus:border-red-500" />
+        </div>
+
         <div class="grid grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">中文真實姓名</label>
@@ -854,11 +879,17 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <label class="block text-neutral-400 mb-1">預計抵達濟州時間</label>
-            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">預計離開濟州時間</label>
-            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-neutral-400">預計離開濟州時間</label>
+              <label class="flex items-center gap-1 cursor-pointer select-none text-[11px] text-red-400 font-medium">
+                <input id="editDepartureUncertain" type="checkbox" class="w-3 h-3 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
+                <span>尚未確定</span>
+              </label>
+            </div>
+            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
         </div>
 
