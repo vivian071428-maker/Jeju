@@ -11,7 +11,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 拆分 API Key 避免 GitHub Secret Scanner 觸發誤報
+    // 拆分 API Key 避免 GitHub 安全掃描觸發警報
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
 
@@ -50,9 +50,9 @@
     const passportFileInput = document.getElementById("passportFile");
     const ocrStatus = document.getElementById("ocrStatus");
 
-    // 1. 初始化 MRZ Worker（僅載入英數白名單）
+    // 1. 初始化專屬 MRZ 英數 Worker
     let worker = null;
-    async function getWorker() {
+    async function initWorker() {
       if (!worker) {
         worker = await Tesseract.createWorker('eng');
         await worker.setParameters({
@@ -62,21 +62,20 @@
       }
       return worker;
     }
-    getWorker();
+    initWorker();
 
-    // 2. 精確裁切底部 20% MRZ 機讀碼區域並二值化去除雜訊
-    function cropMRZOnly(file) {
+    // 2. 專門精確裁切護照底部 25% MRZ 區域並二值化
+    function preprocessPassportMRZ(file) {
       return new Promise((resolve) => {
-        const img = new Image();
         const reader = new FileReader();
         reader.onload = (e) => {
-          img.src = e.target.result;
+          const img = new Image();
           img.onload = () => {
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
-
-            const cropH = img.height * 0.20;
-            const startY = img.height * 0.80;
+            
+            const startY = img.height * 0.72;
+            const cropH = img.height * 0.28;
             
             canvas.width = img.width;
             canvas.height = cropH;
@@ -84,98 +83,102 @@
             ctx.drawImage(img, 0, startY, img.width, cropH, 0, 0, img.width, cropH);
 
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const d = imgData.data;
+            const data = imgData.data;
 
-            for (let i = 0; i < d.length; i += 4) {
-              const gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-              const val = gray < 130 ? 0 : 255;
-              d[i] = val;
-              d[i+1] = val;
-              d[i+2] = val;
+            for (let i = 0; i < data.length; i += 4) {
+              const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+              const binary = gray < 135 ? 0 : 255;
+              data[i] = binary;
+              data[i + 1] = binary;
+              data[i + 2] = binary;
             }
             ctx.putImageData(imgData, 0, 0);
             resolve(canvas.toDataURL('image/png'));
           };
+          img.src = e.target.result;
         };
         reader.readAsDataURL(file);
       });
     }
 
-    // 3. ICAO 9303 固定索引精準切片解析
-    function parseStrictMRZ(raw) {
-      const cleanLines = raw.split('\n')
+    // 3. ICAO 9303 固定索引與防呆解析
+    function parseMRZText(raw) {
+      const lines = raw.split('\n')
         .map(l => l.replace(/[^A-Z0-9<]/g, '').trim())
         .filter(l => l.length >= 20);
 
       let line1 = '';
       let line2 = '';
 
-      for (let i = 0; i < cleanLines.length; i++) {
-        if (cleanLines[i].startsWith('P<') || cleanLines[i].includes('TWN')) {
-          line1 = cleanLines[i];
-          if (cleanLines[i + 1]) line2 = cleanLines[i + 1];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('P<') || lines[i].includes('TWN')) {
+          line1 = lines[i];
+          line2 = lines[i + 1] || '';
           break;
         }
       }
 
-      if (!line1 && cleanLines.length >= 2) {
-        line1 = cleanLines[cleanLines.length - 2];
-        line2 = cleanLines[cleanLines.length - 1];
+      if (!line1 && lines.length >= 2) {
+        line1 = lines[lines.length - 2];
+        line2 = lines[lines.length - 1];
       }
 
-      let passportNumber = '';
-      let englishName = '';
-      let birthday = '';
-      let nationalId = '';
-      let gender = '';
+      let parsed = {
+        englishName: '',
+        passportNumber: '',
+        birthday: '',
+        gender: '',
+        nationalId: ''
+      };
 
-      // 第一排：P<TWNLIN<<MEI<HUA<<<<<<<<<<<<<<<<<<<<<<<
+      // 第一排：英文姓名
       if (line1) {
-        let nameChunk = line1.substring(line1.indexOf('TWN') !== -1 ? line1.indexOf('TWN') + 3 : 5);
-        let nameParts = nameChunk.split('<<');
-        if (nameParts.length >= 2) {
-          let surname = nameParts[0].replace(/</g, '').trim();
-          let given = nameParts[1].replace(/<+/g, '-').replace(/-$/, '').trim();
-          if (surname) englishName = `${surname}, ${given}`;
+        let nameIdx = line1.indexOf('TWN') !== -1 ? line1.indexOf('TWN') + 3 : line1.indexOf('P<') + 5;
+        let nameChunk = line1.substring(nameIdx);
+        let parts = nameChunk.split('<<');
+        if (parts.length >= 2) {
+          let surname = parts[0].replace(/</g, '').trim();
+          let given = parts[1].replace(/<+/g, '-').replace(/-+$/, '').trim();
+          if (surname) parsed.englishName = `${surname}, ${given}`;
         }
       }
 
-      // 第二排：8888000886TWN8801018F2712251A234567893<<<<12
+      // 第二排：護照號碼、生日、性別、身分證
       if (line2) {
-        // 1. 護照號碼（前 9 碼）
-        let passChunk = line2.substring(0, 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
-        let pMatch = passChunk.match(/[0-9]{8,9}/);
-        if (pMatch) passportNumber = pMatch[0];
+        // [A] 護照號碼（前 9 碼，修正常見混淆字元）
+        let pChunk = line2.substring(0, 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
+        let pMatch = pChunk.match(/[0-9]{8,9}/);
+        if (pMatch) parsed.passportNumber = pMatch[0];
 
-        // 2. 出生年月日（TWN 後 6 碼 YYMMDD）與性別
-        let twnIdx = line2.indexOf('TWN');
-        if (twnIdx !== -1 && line2.length >= twnIdx + 9) {
-          let dob = line2.substring(twnIdx + 3, twnIdx + 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
+        // [B] 出生年月日與性別（TWN 後 6 碼日期）
+        let twnPos = line2.indexOf('TWN');
+        if (twnPos !== -1 && line2.length >= twnPos + 9) {
+          let dob = line2.substring(twnPos + 3, twnPos + 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
           if (/^[0-9]{6}$/.test(dob)) {
             let yy = parseInt(dob.substring(0, 2), 10);
             let mm = dob.substring(2, 4);
             let dd = dob.substring(4, 6);
             let fullYear = yy > 26 ? `19${dob.substring(0, 2)}` : `20${dob.substring(0, 2)}`;
-            birthday = `${fullYear}-${mm}-${dd}`;
+            parsed.birthday = `${fullYear}-${mm}-${dd}`;
           }
 
-          let sexChar = line2.charAt(twnIdx + 10);
-          if (sexChar === 'F' || sexChar === 'M') gender = sexChar;
+          let s = line2.charAt(twnPos + 10);
+          if (s === 'F' || s === 'M') parsed.gender = s;
         }
 
-        // 3. 身分證字號（末段 1 碼英文 + 9 碼數字，嚴格校驗第 2 碼為 1 或 2）
-        let idSection = line2.substring(20);
+        // [C] 身分證字號（末段 1 碼英文 + 9 碼數字，嚴格校驗第 2 碼為 1 或 2）
+        let idSection = line2.substring(15);
         let idMatch = idSection.match(/([A-Z][12][0-9]{8})/);
         if (idMatch) {
-          nationalId = idMatch[1];
-          if (!gender) gender = nationalId.charAt(1) === '1' ? 'M' : 'F';
+          parsed.nationalId = idMatch[1];
+          if (!parsed.gender) parsed.gender = parsed.nationalId.charAt(1) === '1' ? 'M' : 'F';
         }
       }
 
-      return { passportNumber, englishName, birthday, nationalId, gender };
+      return parsed;
     }
 
-    // 4. 上傳圖片並辨識
+    // 4. 上傳觸發 OCR 辨識
     passportFileInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -191,10 +194,10 @@
       `;
 
       try {
-        const mrzImg = await cropMRZOnly(file);
-        const w = await getWorker();
-        const { data: { text } } = await w.recognize(mrzImg);
-        const res = parseStrictMRZ(text);
+        const processedImg = await preprocessPassportMRZ(file);
+        const w = await initWorker();
+        const { data: { text } } = await w.recognize(processedImg);
+        const res = parseMRZText(text);
 
         let detected = [];
 
@@ -222,19 +225,19 @@
 
         if (detected.length > 0) {
           ocrStatus.className = "text-xs text-emerald-400 font-medium mt-2";
-          ocrStatus.innerHTML = `✓ 已帶入：${detected.join("、")}。請手動輸入中文姓名並核對內容。`;
+          ocrStatus.innerHTML = `✓ 已成功帶入：${detected.join("、")}。請手動輸入中文姓名並核對內容。`;
         } else {
           ocrStatus.className = "text-xs text-amber-400 font-medium mt-2";
-          ocrStatus.innerHTML = "未能精準識別機讀碼，請手動確認填寫。";
+          ocrStatus.innerHTML = "未能精準識別機讀碼，請直接手動填寫。";
         }
       } catch (err) {
         console.error(err);
         ocrStatus.className = "text-xs text-red-400 font-medium mt-2";
-        ocrStatus.innerHTML = "辨識失敗，請手動輸入護照資訊。";
+        ocrStatus.innerHTML = "辨識失敗，請直接手動輸入。";
       }
     });
 
-    // 5. 日期與格式防呆
+    // 5. 日期與格式防呆校驗
     function getNowString() {
       const d = new Date();
       const pad = (n) => String(n).padStart(2, '0');
@@ -301,7 +304,7 @@
       e.target.value = e.target.value.toUpperCase();
     });
 
-    // 6. 送出表單
+    // 6. 送出表單資料
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const passportVal = passportInput.value.trim();
@@ -354,7 +357,6 @@
     };
   </script>
   <style>
-    /* 深色模式日曆 icon 顏色反轉 */
     input[type="datetime-local"]::-webkit-calendar-picker-indicator,
     input[type="date"]::-webkit-calendar-picker-indicator {
       filter: invert(1);
@@ -366,7 +368,7 @@
 <body class="bg-neutral-950 text-neutral-100 min-h-screen flex items-center justify-center p-4 selection:bg-red-600 selection:text-white">
   <div class="bg-neutral-900 max-w-lg w-full rounded-2xl shadow-2xl border border-neutral-800 p-6 md:p-8 relative overflow-hidden">
     
-    <!-- 頂部質感紅色光暈裝飾 -->
+    <!-- 頂部質感紅色裝飾光條 -->
     <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-red-600"></div>
 
     <div id="formContainer" class="space-y-6">
@@ -380,7 +382,7 @@
 
       <form id="guestForm" class="space-y-4">
         
-        <!-- 護照拍照 OCR 快速辨識區 (黑紅主題卡片) -->
+        <!-- 護照拍照 OCR 快速辨識區 -->
         <div class="bg-gradient-to-br from-neutral-900 to-red-950/40 border border-red-900/50 rounded-xl p-4 space-y-2.5 shadow-inner">
           <div class="flex items-center justify-between">
             <span class="text-xs font-bold text-red-400 flex items-center gap-1.5 tracking-wide">
@@ -470,7 +472,7 @@
       </form>
     </div>
 
-    <!-- 送出成功畫面 (黑紅主題) -->
+    <!-- 送出成功畫面 -->
     <div id="successContainer" class="hidden text-center py-8 space-y-6">
       <div class="w-16 h-16 bg-red-950/80 border border-red-800/80 text-red-400 rounded-full flex items-center justify-center mx-auto text-2xl font-black shadow-lg shadow-red-950">✓</div>
       <div>
