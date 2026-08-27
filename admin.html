@@ -64,9 +64,7 @@
       return str.substring(0, visibleChars) + '****';
     }
 
-    // 3. 客戶分析運算引擎
-    // - clientType 分級：包含所有已登記/預約行程
-    // - historyVisits 與 totalPoints：僅採計已結案/已完成 (status === 'completed' || housekeepingStatus === 'closed')
+    // 3. 客戶分析運算引擎 (CRM Profiling)
     function buildClientProfileMap(guestList) {
       const profileMap = {};
 
@@ -75,8 +73,8 @@
         if (!profileMap[key]) {
           profileMap[key] = {
             totalPoints: 0,
-            allVisits: [],     // 所有預約+歷史 (用於客戶分級)
-            historyVisits: []  // 僅限已結案歷史 (用於歷史列表與點數累積)
+            allVisits: [],
+            historyVisits: []
           };
         }
         
@@ -91,11 +89,9 @@
 
       Object.keys(profileMap).forEach(key => {
         const p = profileMap[key];
-        // 依照時間排序
         p.allVisits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
         p.historyVisits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
 
-        // 客戶分級判斷 (將預約納入計算)
         if (p.allVisits.length <= 1) {
           p.clientType = 'other';
           p.clientTypeLabel = '新客/單次';
@@ -121,7 +117,9 @@
       return profileMap;
     }
 
-    // 房務警戒週期計算
+    // 核心房務倒數運算：以離開/退房時間計算倒數
+    // 距離退房 0h ~ 24h: 倒數第 1 晚 (訂房警戒)
+    // 距離退房 24h ~ 48h: 倒數第 2 晚 (關懷名單)
     function getHousekeepingAlertLevel(g, now) {
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
         return 'closed';
@@ -133,12 +131,12 @@
       if (now < arrTime) return 'upcoming';
       if (now > depTime) return 'overdue';
 
-      const stayHours = (now - arrTime) / (1000 * 60 * 60);
+      const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
 
-      if (stayHours >= 72) {
-        return 'alert24';
-      } else if (stayHours >= 48) {
-        return 'care48';
+      if (timeLeftHours <= 24) {
+        return 'alert24'; // 倒數第 1 晚 (明天退房，今天必須續房)
+      } else if (timeLeftHours <= 48) {
+        return 'care48';  // 倒數第 2 晚 (提前關懷)
       } else {
         return 'normal';
       }
@@ -346,7 +344,7 @@
       }).join("");
     }
 
-    // 6. 渲染房務警戒看板
+    // 6. 渲染房務警戒看板 (以倒數剩餘晚數展示)
     function renderHousekeepingList(guestList, now, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -370,18 +368,18 @@
 
       container.innerHTML = activeStayGuests.map(g => {
         const level = getHousekeepingAlertLevel(g, now);
-        const arrTime = new Date(g.arrival).getTime();
-        const stayHours = Math.max(0, Math.floor((now - arrTime) / (1000 * 60 * 60)));
-        const stayCurrentDay = Math.floor(stayHours / 24) + 1;
+        const depTime = new Date(g.departure).getTime();
+        const timeLeftHours = Math.max(0, (depTime - now) / (1000 * 60 * 60));
+        const nightsRemaining = Math.ceil(timeLeftHours / 24);
         
-        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">第 ${stayCurrentDay} 天 / 正常住宿</span>`;
+        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">正常住宿中 (剩 ${nightsRemaining} 晚)</span>`;
         let cardBorder = "border-neutral-800";
 
         if (level === 'alert24') {
-          badge = `<span class="bg-red-950 border border-red-800 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">🔴 第 ${stayCurrentDay} 天・訂房警戒</span>`;
+          badge = `<span class="bg-red-950 border border-red-800 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">🔴 倒數第 1 晚・訂房警戒</span>`;
           cardBorder = "border-red-800/80 bg-red-950/20";
         } else if (level === 'care48') {
-          badge = `<span class="bg-amber-950 border border-amber-800 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">🟡 第 3 天・關懷名單</span>`;
+          badge = `<span class="bg-amber-950 border border-amber-800 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">🟡 倒數第 2 晚・關懷名單</span>`;
           cardBorder = "border-amber-800/60 bg-amber-950/10";
         } else if (level === 'overdue') {
           badge = `<span class="bg-neutral-800 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">已逾期 / 今日退房</span>`;
@@ -405,14 +403,14 @@
                 <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '💎 長期客戶' : (profile.clientType === 'short' ? '🌟 短期客戶' : '⚪ 新客')}</span> | 累積點數: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
                 <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
-                <div>總預訂晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (已入住: 第 ${stayCurrentDay} 天)</div>
+                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (剩餘約: ${Math.round(timeLeftHours)} 小時)</div>
                 <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
                 ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1">📌 備註: ${g.note}</div>` : ''}
               </div>
             </div>
 
             <div class="pt-3 border-t border-neutral-800/80 flex flex-col gap-2">
-              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}', ${stayCurrentDay})" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
+              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}', ${nightsRemaining})" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
                 📋 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
@@ -537,7 +535,6 @@
       document.getElementById("drawerVisitCount").innerText = profile.historyVisits.length;
       document.getElementById("drawerClientTag").innerText = profile.clientTypeLabel;
 
-      // 渲染歷史清單：僅限已結案/已完成之歷史
       const historyListContainer = document.getElementById("historyListContainer");
       if (profile.historyVisits.length === 0) {
         historyListContainer.innerHTML = `<div class="text-neutral-500 text-xs text-center py-2">尚無已結案的歷史來訪紀錄。</div>`;
@@ -621,9 +618,9 @@
       }
     };
 
-    window.copyLineCareText = (name, staff, departure, currentDay) => {
-      const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。您目前在濟州島已是第 ${currentDay} 天，預計退房時間為 ${departure.replace('T', ' ')}。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
-      navigator.clipboard.writeText(text).then(() => alert("已成功複製第 " + currentDay + " 天關懷話術至剪貼簿！"));
+    window.copyLineCareText = (name, staff, departure, nightsRemaining) => {
+      const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。提醒您距離預計退房時間 (${departure.replace('T', ' ')}) 僅剩約 ${nightsRemaining} 晚。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
+      navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
     };
 
     let currentExtendId = null;
@@ -704,7 +701,7 @@
           <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
           濟州島旅客與房務管理後台
         </h1>
-        <p class="text-[11px] text-neutral-400 mt-0.5">即時同步旅客登記名單、第3天關懷/第4天續訂警戒、歷史來訪與點數系統</p>
+        <p class="text-[11px] text-neutral-400 mt-0.5">即時同步旅客登記名單、退房倒數關懷/續訂警戒、歷史來訪與點數系統</p>
       </div>
 
       <div class="bg-neutral-900 p-1 border border-neutral-800 rounded-2xl flex gap-1 w-full sm:w-auto">
@@ -717,7 +714,7 @@
       </div>
     </div>
 
-    <!-- 頂部營運數據卡片 -->
+    <!-- 頂部營運數據卡片 (更新為退房倒數預警名稱) -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setCardFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
@@ -728,11 +725,11 @@
         <div id="statInIsland" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
       </div>
       <div id="cardCare48" onclick="setCardFilter('care48')" class="cursor-pointer bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 transition hover:border-amber-800">
-        <div class="text-[11px] text-amber-400 font-medium">🟡 第 3 天關懷名單</div>
+        <div class="text-[11px] text-amber-400 font-medium">🟡 倒數第 2 晚關懷名單</div>
         <div id="statCare48" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
       </div>
       <div id="cardAlert24" onclick="setCardFilter('alert24')" class="cursor-pointer bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-2xl p-3.5 transition hover:border-red-800">
-        <div class="text-[11px] text-red-400 font-medium">🔴 第 4 天訂房警戒</div>
+        <div class="text-[11px] text-red-400 font-medium">🔴 倒數第 1 晚訂房警戒</div>
         <div id="statAlert24" class="text-xl sm:text-2xl font-black text-red-500 mt-1 font-mono">0</div>
       </div>
     </div>
@@ -768,8 +765,8 @@
     <!-- 分頁 2: 房務警戒視圖 -->
     <div id="housekeepingView" class="hidden space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-xs font-bold text-neutral-300">住客第 3 天關懷 / 第 4 天續訂警戒追蹤</h3>
-        <span class="text-[11px] text-neutral-500">依抵達時間自動推算已在島天數</span>
+        <h3 class="text-xs font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
+        <span class="text-[11px] text-neutral-500">依退房日動態倒數（倒數2晚關懷 / 倒數1晚警戒）</span>
       </div>
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
@@ -796,7 +793,7 @@
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
       </div>
 
-      <!-- 折疊按鈕：查看歷史行程 (僅顯示已結案) -->
+      <!-- 折疊按鈕：查看歷史行程 -->
       <div>
         <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
           📜 展開已結案歷史行程
@@ -854,7 +851,6 @@
           </div>
         </div>
 
-        <!-- 日期時間欄位優化：手機單欄獨立呈現 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <label class="block text-neutral-400 mb-1">預計抵達濟州時間</label>
@@ -917,6 +913,7 @@
           <option value="3">續訂 +3 晚</option>
           <option value="4">續訂 +4 晚</option>
           <option value="5">續訂 +5 晚</option>
+          <option value="7">續訂 +7 晚 (一週)</option>
         </select>
       </div>
       <div class="flex gap-2 pt-2">
