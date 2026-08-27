@@ -28,9 +28,9 @@
     const db = getDatabase(app);
 
     let allGuests = {};
-    let activeTab = 'roster'; // 'roster' | 'housekeeping'
-    let currentFilter = 'all'; // 頂部卡片: 'all' | 'inIsland' | 'care48' | 'alert24'
-    let clientTypeFilter = 'all'; // 搜尋列客群篩選: 'all' | 'long' | 'short' | 'other'
+    let activeTab = 'roster'; 
+    let currentFilter = 'all'; 
+    let clientTypeFilter = 'all'; 
     let unmaskedIds = new Set();
     const ADMIN_PIN = "8888";
 
@@ -125,9 +125,9 @@
       const stayHours = (now - arrTime) / (1000 * 60 * 60);
 
       if (stayHours >= 72) {
-        return 'alert24'; // 第 4 天起：警戒
+        return 'alert24';
       } else if (stayHours >= 48) {
-        return 'care48';  // 第 3 天：關懷
+        return 'care48';
       } else {
         return 'normal';
       }
@@ -135,7 +135,6 @@
 
     // 4. 渲染主儀表板
     function renderDashboard() {
-      // 確保最新登錄的資料排在最上方 (由新到舊排序)
       const guestList = Object.entries(allGuests)
         .map(([id, data]) => ({ id, ...data }))
         .sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
@@ -209,7 +208,6 @@
     }
 
     function getFilteredGuests(profileMap) {
-      // 保持由新到舊排序
       const guestList = Object.entries(allGuests)
         .map(([id, data]) => ({ id, ...data }))
         .sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
@@ -245,7 +243,7 @@
       });
     }
 
-    // 5. 渲染旅客行程總表（最新客戶排在最上方）
+    // 5. 渲染旅客行程總表
     function renderRoster(guestList, now, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(profileMap);
@@ -725,12 +723,9 @@
 
     <!-- 分頁 1: 旅客總表視圖 -->
     <div id="rosterView" class="space-y-3">
-      
-      <!-- 搜尋列、客群快捷篩選按鈕與匯出按鈕 -->
       <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
         <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE、專員或備註..." class="w-full md:w-72 px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
 
-        <!-- 客群快篩按鈕群 -->
         <div class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
           <button id="btnClientAll" onclick="setClientTypeFilter('all')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-600 text-white shadow-sm">
             全部客群
@@ -785,7 +780,6 @@
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
       </div>
 
-      <!-- 折疊按鈕：查看歷史行程 -->
       <div>
         <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
           📜 展開歷史來訪行程明細
@@ -843,14 +837,15 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-2">
+        <!-- 日期時間欄位優化：手機單欄完整呈現，避免擠壓換行 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
-            <label class="block text-neutral-400 mb-1">抵達時間</label>
-            <input id="editArrival" type="datetime-local" class="w-full px-2.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+            <label class="block text-neutral-400 mb-1">預計抵達濟州時間</label>
+            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">離開時間</label>
-            <input id="editDeparture" type="datetime-local" class="w-full px-2.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+            <label class="block text-neutral-400 mb-1">預計離開濟州時間</label>
+            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
         </div>
 
