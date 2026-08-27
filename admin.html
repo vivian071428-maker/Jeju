@@ -10,7 +10,6 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 拆分 API Key 避免 GitHub 誤報
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
 
@@ -66,6 +65,8 @@
     }
 
     // 3. 客戶分析運算引擎
+    // - clientType 分級：包含所有已登記/預約行程
+    // - historyVisits 與 totalPoints：僅採計已結案/已完成 (status === 'completed' || housekeepingStatus === 'closed')
     function buildClientProfileMap(guestList) {
       const profileMap = {};
 
@@ -74,28 +75,38 @@
         if (!profileMap[key]) {
           profileMap[key] = {
             totalPoints: 0,
-            visits: []
+            allVisits: [],     // 所有預約+歷史 (用於客戶分級)
+            historyVisits: []  // 僅限已結案歷史 (用於歷史列表與點數累積)
           };
         }
-        profileMap[key].totalPoints += parseInt(g.points || 0, 10);
-        profileMap[key].visits.push(g);
+        
+        profileMap[key].allVisits.push(g);
+
+        const isClosed = (g.status === 'completed' || g.housekeepingStatus === 'closed');
+        if (isClosed) {
+          profileMap[key].totalPoints += parseInt(g.points || 0, 10);
+          profileMap[key].historyVisits.push(g);
+        }
       });
 
       Object.keys(profileMap).forEach(key => {
         const p = profileMap[key];
-        p.visits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+        // 依照時間排序
+        p.allVisits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+        p.historyVisits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
 
-        if (p.visits.length <= 1) {
+        // 客戶分級判斷 (將預約納入計算)
+        if (p.allVisits.length <= 1) {
           p.clientType = 'other';
           p.clientTypeLabel = '新客/單次';
         } else {
           let totalGapDays = 0;
-          for (let i = 1; i < p.visits.length; i++) {
-            const prev = new Date(p.visits[i - 1].arrival).getTime();
-            const curr = new Date(p.visits[i].arrival).getTime();
+          for (let i = 1; i < p.allVisits.length; i++) {
+            const prev = new Date(p.allVisits[i - 1].arrival).getTime();
+            const curr = new Date(p.allVisits[i].arrival).getTime();
             totalGapDays += Math.abs((curr - prev) / (1000 * 60 * 60 * 24));
           }
-          const avgGap = totalGapDays / (p.visits.length - 1);
+          const avgGap = totalGapDays / (p.allVisits.length - 1);
 
           if (avgGap <= 35) {
             p.clientType = 'long';
@@ -268,7 +279,7 @@
         if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60">已取消</span>`;
 
         const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
-        const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', visits: [] };
+        const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [], historyVisits: [] };
         
         let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-medium">⚪ 新客</span>`;
         if (profile.clientType === 'long') {
@@ -301,7 +312,7 @@
                 </div>
                 <div class="text-[11px] text-neutral-500 font-mono">身分證: ${idText}</div>
                 <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
-                <div class="text-amber-400 font-mono font-medium">🏆 累積總點數: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(來訪 ${profile.visits.length} 次)</span></div>
+                <div class="text-amber-400 font-mono font-medium">🏆 結案累積點數: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(已結案: ${profile.historyVisits.length} 次 / 總預約: ${profile.allVisits.length} 次)</span></div>
               </div>
 
               <div class="space-y-1">
@@ -377,7 +388,7 @@
         }
 
         const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
-        const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', visits: [] };
+        const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [], historyVisits: [] };
 
         return `
           <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
@@ -391,7 +402,7 @@
                 ${badge}
               </div>
               <div class="text-xs text-neutral-400 space-y-1">
-                <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '💎 長期客戶' : (profile.clientType === 'short' ? '🌟 短期客戶' : '⚪ 新客')}</span> | 累積: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
+                <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '💎 長期客戶' : (profile.clientType === 'short' ? '🌟 短期客戶' : '⚪ 新客')}</span> | 累積點數: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
                 <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
                 <div>總預訂晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (已入住: 第 ${stayCurrentDay} 天)</div>
@@ -431,7 +442,7 @@
 
       const headers = [
         "中文姓名", "護照英文姓名", "護照號碼", "身分證字號", "客群分類",
-        "累積總點數", "本次點數", "性別", "出生年月日", "LINE暱稱",
+        "結案累積總點數", "本次點數", "性別", "出生年月日", "LINE暱稱",
         "抵達航班", "抵達時間", "離開時間", "停留晚數", "接待專員", "狀態", "備註"
       ];
 
@@ -504,7 +515,7 @@
       const guestList = Object.entries(allGuests).map(([i, d]) => ({ id: i, ...d }));
       const profileMap = buildClientProfileMap(guestList);
       const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
-      const profile = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客', visits: [] };
+      const profile = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客', allVisits: [], historyVisits: [] };
 
       document.getElementById("editName").value = g.name || '';
       document.getElementById("editEnglishName").value = g.englishName || '';
@@ -523,26 +534,31 @@
       document.getElementById("editNote").value = g.note || '';
 
       document.getElementById("drawerTotalPoints").innerText = profile.totalPoints;
-      document.getElementById("drawerVisitCount").innerText = profile.visits.length;
+      document.getElementById("drawerVisitCount").innerText = profile.historyVisits.length;
       document.getElementById("drawerClientTag").innerText = profile.clientTypeLabel;
 
+      // 渲染歷史清單：僅限已結案/已完成之歷史
       const historyListContainer = document.getElementById("historyListContainer");
-      historyListContainer.innerHTML = profile.visits.map((v, idx) => `
-        <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-3 text-xs space-y-1">
-          <div class="flex items-center justify-between text-neutral-300 font-medium">
-            <span>第 ${idx + 1} 次來訪：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '-'}</span>
-            <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
+      if (profile.historyVisits.length === 0) {
+        historyListContainer.innerHTML = `<div class="text-neutral-500 text-xs text-center py-2">尚無已結案的歷史來訪紀錄。</div>`;
+      } else {
+        historyListContainer.innerHTML = profile.historyVisits.map((v, idx) => `
+          <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-3 text-xs space-y-1">
+            <div class="flex items-center justify-between text-neutral-300 font-medium">
+              <span>歷史行程 #${idx + 1}：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '-'}</span>
+              <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
+            </div>
+            <div class="text-neutral-500 flex items-center justify-between text-[11px]">
+              <span>航班: ${v.airline || '-'} | 晚數: ${v.stayDays || 1} 晚 | 專員: ${v.staff || '未指派'}</span>
+              <span class="text-emerald-400/90 font-medium">已結案</span>
+            </div>
+            ${v.note ? `<div class="text-amber-400/80 text-[10px] pt-0.5">備註: ${v.note}</div>` : ''}
           </div>
-          <div class="text-neutral-500 flex items-center justify-between text-[11px]">
-            <span>航班: ${v.airline || '-'} | 晚數: ${v.stayDays || 1} 晚 | 專員: ${v.staff || '未指派'}</span>
-            <span>狀態: ${v.status || 'pending'}</span>
-          </div>
-          ${v.note ? `<div class="text-amber-400/80 text-[10px] pt-0.5">備註: ${v.note}</div>` : ''}
-        </div>
-      `).join("");
+        `).join("");
+      }
 
       document.getElementById("historyDrawerSection").classList.add("hidden");
-      document.getElementById("toggleHistoryBtn").innerText = `📜 展開歷史來訪行程 (${profile.visits.length} 次)`;
+      document.getElementById("toggleHistoryBtn").innerText = `📜 展開已結案歷史行程 (${profile.historyVisits.length} 次)`;
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
 
@@ -554,7 +570,7 @@
         btn.innerText = "🔼 收起歷史行程明細";
       } else {
         section.classList.add("hidden");
-        btn.innerText = "📜 展開歷史來訪行程明細";
+        btn.innerText = "📜 展開已結案歷史行程";
       }
     };
 
@@ -600,7 +616,7 @@
     };
 
     window.closeStayCase = (id) => {
-      if (confirm("確定將此旅客標記為【結案退房】？將從警戒看板移出。")) {
+      if (confirm("確定將此旅客標記為【結案退房】？將從警戒看板移出，並正式列入歷史來訪與累計點數。")) {
         update(ref(db, `guests/${id}`), { housekeepingStatus: 'closed', status: 'completed' });
       }
     };
@@ -770,19 +786,20 @@
             <span>📝 編輯旅客資料與歷程</span>
           </h3>
           <div class="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
-            <span>標籤: <b id="drawerClientTag" class="text-red-400">-</b></span>
+            <span>分級標籤: <b id="drawerClientTag" class="text-red-400">-</b></span>
             <span>|</span>
-            <span>累計來訪: <b id="drawerVisitCount" class="text-white">0</b> 次</span>
+            <span>已結案來訪: <b id="drawerVisitCount" class="text-white">0</b> 次</span>
             <span>|</span>
-            <span>總點數: <b id="drawerTotalPoints" class="text-amber-400">0</b> 點</span>
+            <span>結案累積點數: <b id="drawerTotalPoints" class="text-amber-400">0</b> 點</span>
           </div>
         </div>
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
       </div>
 
+      <!-- 折疊按鈕：查看歷史行程 (僅顯示已結案) -->
       <div>
         <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
-          📜 展開歷史來訪行程明細
+          📜 展開已結案歷史行程
         </button>
         <div id="historyDrawerSection" class="hidden mt-2 space-y-2 max-h-48 overflow-y-auto p-1">
           <div id="historyListContainer" class="space-y-1.5"></div>
@@ -837,7 +854,7 @@
           </div>
         </div>
 
-        <!-- 日期時間欄位優化：手機單欄完整呈現，避免擠壓換行 -->
+        <!-- 日期時間欄位優化：手機單欄獨立呈現 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <label class="block text-neutral-400 mb-1">預計抵達濟州時間</label>
