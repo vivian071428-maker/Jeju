@@ -29,7 +29,8 @@
 
     let allGuests = {};
     let activeTab = 'roster'; // 'roster' | 'housekeeping'
-    let currentFilter = 'all'; // 'all' | 'inIsland' | 'care48' | 'alert24'
+    let currentFilter = 'all'; // 頂部卡片: 'all' | 'inIsland' | 'care48' | 'alert24'
+    let clientTypeFilter = 'all'; // 搜尋列客群篩選: 'all' | 'long' | 'short' | 'other'
     let unmaskedIds = new Set();
     const ADMIN_PIN = "8888";
 
@@ -58,17 +59,89 @@
       });
     }
 
-    // 遮罩輔助函式
     function maskString(str, visibleChars = 4) {
       if (!str) return '-';
       if (str.length <= visibleChars) return str;
       return str.substring(0, visibleChars) + '****';
     }
 
-    // 3. 渲染儀表板與計算
+    // 3. 客戶分析運算引擎
+    function buildClientProfileMap(guestList) {
+      const profileMap = {};
+
+      guestList.forEach(g => {
+        const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        if (!profileMap[key]) {
+          profileMap[key] = {
+            totalPoints: 0,
+            visits: []
+          };
+        }
+        profileMap[key].totalPoints += parseInt(g.points || 0, 10);
+        profileMap[key].visits.push(g);
+      });
+
+      Object.keys(profileMap).forEach(key => {
+        const p = profileMap[key];
+        p.visits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+
+        if (p.visits.length <= 1) {
+          p.clientType = 'other';
+          p.clientTypeLabel = '新客/單次';
+        } else {
+          let totalGapDays = 0;
+          for (let i = 1; i < p.visits.length; i++) {
+            const prev = new Date(p.visits[i - 1].arrival).getTime();
+            const curr = new Date(p.visits[i].arrival).getTime();
+            totalGapDays += Math.abs((curr - prev) / (1000 * 60 * 60 * 24));
+          }
+          const avgGap = totalGapDays / (p.visits.length - 1);
+
+          if (avgGap <= 35) {
+            p.clientType = 'long';
+            p.clientTypeLabel = '長期客戶 (頻繁)';
+          } else {
+            p.clientType = 'short';
+            p.clientTypeLabel = '短期客戶 (偶爾)';
+          }
+        }
+      });
+
+      return profileMap;
+    }
+
+    // 房務警戒週期計算
+    function getHousekeepingAlertLevel(g, now) {
+      if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
+        return 'closed';
+      }
+
+      const arrTime = new Date(g.arrival).getTime();
+      const depTime = new Date(g.departure).getTime();
+
+      if (now < arrTime) return 'upcoming';
+      if (now > depTime) return 'overdue';
+
+      const stayHours = (now - arrTime) / (1000 * 60 * 60);
+
+      if (stayHours >= 72) {
+        return 'alert24'; // 第 4 天起：警戒
+      } else if (stayHours >= 48) {
+        return 'care48';  // 第 3 天：關懷
+      } else {
+        return 'normal';
+      }
+    }
+
+    // 4. 渲染主儀表板
     function renderDashboard() {
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      // 確保最新登錄的資料排在最上方 (由新到舊排序)
+      const guestList = Object.entries(allGuests)
+        .map(([id, data]) => ({ id, ...data }))
+        .sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+
       const now = new Date().getTime();
+      const profileMap = buildClientProfileMap(guestList);
 
       let total = guestList.length;
       let care48Count = 0;
@@ -78,19 +151,14 @@
       guestList.forEach(g => {
         const arrTime = new Date(g.arrival).getTime();
         const depTime = new Date(g.departure).getTime();
-        const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
 
         if (now >= arrTime && now <= depTime) {
           inIslandCount++;
         }
 
-        if (g.housekeepingStatus !== 'closed') {
-          if (timeLeftHours > 0 && timeLeftHours <= 24) {
-            alert24Count++;
-          } else if (timeLeftHours > 24 && timeLeftHours <= 48) {
-            care48Count++;
-          }
-        }
+        const level = getHousekeepingAlertLevel(g, now);
+        if (level === 'care48') care48Count++;
+        if (level === 'alert24') alert24Count++;
       });
 
       document.getElementById("statTotal").innerText = total;
@@ -99,11 +167,11 @@
       document.getElementById("statInIsland").innerText = inIslandCount;
 
       updateCardActiveStyles();
-      renderRoster(guestList, now);
-      renderHousekeepingList(guestList, now);
+      updateClientFilterBtnStyles();
+      renderRoster(guestList, now, profileMap);
+      renderHousekeepingList(guestList, now, profileMap);
     }
 
-    // 更新頂部卡片選中樣式
     function updateCardActiveStyles() {
       const cards = {
         'all': document.getElementById("cardAll"),
@@ -122,20 +190,46 @@
       });
     }
 
-    // 獲取當前過濾後的旅客清單（用於渲染與匯出）
-    function getFilteredGuests() {
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+    function updateClientFilterBtnStyles() {
+      const btns = {
+        'all': document.getElementById("btnClientAll"),
+        'long': document.getElementById("btnClientLong"),
+        'short': document.getElementById("btnClientShort"),
+        'other': document.getElementById("btnClientOther")
+      };
+
+      Object.entries(btns).forEach(([key, el]) => {
+        if (!el) return;
+        if (clientTypeFilter === key) {
+          el.className = "px-3 py-1.5 rounded-xl text-xs font-bold bg-red-600 text-white shadow-sm";
+        } else {
+          el.className = "px-3 py-1.5 rounded-xl text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white";
+        }
+      });
+    }
+
+    function getFilteredGuests(profileMap) {
+      // 保持由新到舊排序
+      const guestList = Object.entries(allGuests)
+        .map(([id, data]) => ({ id, ...data }))
+        .sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+
       const now = new Date().getTime();
       const searchVal = document.getElementById("searchInput").value.toLowerCase();
 
       let filtered = guestList.filter(g => {
         const arrTime = new Date(g.arrival).getTime();
         const depTime = new Date(g.departure).getTime();
-        const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
+        const level = getHousekeepingAlertLevel(g, now);
+        const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const cType = profileMap[key]?.clientType || 'other';
 
-        if (currentFilter === 'inIsland') return (now >= arrTime && now <= depTime);
-        if (currentFilter === 'care48') return (g.housekeepingStatus !== 'closed' && timeLeftHours > 24 && timeLeftHours <= 48);
-        if (currentFilter === 'alert24') return (g.housekeepingStatus !== 'closed' && timeLeftHours > 0 && timeLeftHours <= 24);
+        if (currentFilter === 'inIsland' && !(now >= arrTime && now <= depTime)) return false;
+        if (currentFilter === 'care48' && level !== 'care48') return false;
+        if (currentFilter === 'alert24' && level !== 'alert24') return false;
+
+        if (clientTypeFilter !== 'all' && cType !== clientTypeFilter) return false;
+
         return true;
       });
 
@@ -151,10 +245,10 @@
       });
     }
 
-    // 4. 渲染旅客行程總表
-    function renderRoster(guestList, now) {
+    // 5. 渲染旅客行程總表（最新客戶排在最上方）
+    function renderRoster(guestList, now, profileMap) {
       const container = document.getElementById("rosterContainer");
-      const filtered = getFilteredGuests();
+      const filtered = getFilteredGuests(profileMap);
 
       if (filtered.length === 0) {
         container.innerHTML = `<div class="text-center py-12 text-neutral-500 text-xs">查無符合條件的旅客資料</div>`;
@@ -175,15 +269,26 @@
         if (g.status === 'completed') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-400">已完成</span>`;
         if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60">已取消</span>`;
 
+        const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', visits: [] };
+        
+        let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-medium">⚪ 新客</span>`;
+        if (profile.clientType === 'long') {
+          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-red-950 border border-red-800/60 text-red-300 text-[10px] font-bold">💎 長期客戶</span>`;
+        } else if (profile.clientType === 'short') {
+          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800/60 text-amber-300 text-[10px] font-bold">🌟 短期客戶</span>`;
+        }
+
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-2 border-b border-neutral-800 pb-2.5">
-              <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-baseline gap-1.5">
+              <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5 flex-wrap">
                 <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
                   ${g.name || '未填寫'}
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
-                <span class="text-[10px] text-red-500 font-normal">✎ 編輯/備註</span>
+                ${clientTypeTag}
+                <span class="text-[10px] text-red-500 font-normal">✎ 修改</span>
               </button>
               <div>${statusBadge}</div>
             </div>
@@ -198,12 +303,14 @@
                 </div>
                 <div class="text-[11px] text-neutral-500 font-mono">身分證: ${idText}</div>
                 <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
+                <div class="text-amber-400 font-mono font-medium">🏆 累積總點數: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(來訪 ${profile.visits.length} 次)</span></div>
               </div>
 
               <div class="space-y-1">
                 <div>航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${g.airline || '-'}</span></div>
                 <div>抵達: <span class="text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
                 <div>離開: <span class="text-neutral-300">${g.departure ? g.departure.replace('T', ' ') : '-'}</span> <span class="text-neutral-500">(${g.stayDays || 1} 晚)</span></div>
+                <div>本次發放點數: <span class="text-neutral-200 font-mono font-bold">${g.points || 0}</span> 點</div>
               </div>
             </div>
 
@@ -218,7 +325,7 @@
               <div class="text-[11px] text-neutral-400">專員: <span class="text-neutral-200 font-medium">${g.staff || '未指派'}</span></div>
               <div class="flex items-center gap-2">
                 <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition">
-                  完整資料
+                  歷史紀錄 / 修改
                 </button>
                 <button onclick="deleteGuest('${g.id}')" class="px-2 py-1 text-neutral-500 hover:text-red-400 transition text-xs">
                   刪除
@@ -230,20 +337,20 @@
       }).join("");
     }
 
-    // 5. 渲染房務警戒看板
-    function renderHousekeepingList(guestList, now) {
+    // 6. 渲染房務警戒看板
+    function renderHousekeepingList(guestList, now, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
       let activeStayGuests = guestList.filter(g => {
         const arrTime = new Date(g.arrival).getTime();
         const depTime = new Date(g.departure).getTime();
-        const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
+        const level = getHousekeepingAlertLevel(g, now);
 
-        if (g.housekeepingStatus === 'closed') return false;
+        if (level === 'closed') return false;
 
         if (currentFilter === 'inIsland') return (now >= arrTime && now <= depTime);
-        if (currentFilter === 'care48') return (timeLeftHours > 24 && timeLeftHours <= 48);
-        if (currentFilter === 'alert24') return (timeLeftHours > 0 && timeLeftHours <= 24);
+        if (currentFilter === 'care48') return (level === 'care48');
+        if (currentFilter === 'alert24') return (level === 'alert24');
         return true;
       });
 
@@ -253,21 +360,26 @@
       }
 
       container.innerHTML = activeStayGuests.map(g => {
-        const depTime = new Date(g.departure).getTime();
-        const diffHours = (depTime - now) / (1000 * 60 * 60);
+        const level = getHousekeepingAlertLevel(g, now);
+        const arrTime = new Date(g.arrival).getTime();
+        const stayHours = Math.max(0, Math.floor((now - arrTime) / (1000 * 60 * 60)));
+        const stayCurrentDay = Math.floor(stayHours / 24) + 1;
         
-        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">正常住宿中</span>`;
+        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold">第 ${stayCurrentDay} 天 / 正常住宿</span>`;
         let cardBorder = "border-neutral-800";
 
-        if (diffHours > 0 && diffHours <= 24) {
-          badge = `<span class="bg-red-950 border border-red-800 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">🔴 24h 訂房警戒</span>`;
+        if (level === 'alert24') {
+          badge = `<span class="bg-red-950 border border-red-800 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">🔴 第 ${stayCurrentDay} 天・訂房警戒</span>`;
           cardBorder = "border-red-800/80 bg-red-950/20";
-        } else if (diffHours > 24 && diffHours <= 48) {
-          badge = `<span class="bg-amber-950 border border-amber-800 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">🟡 48h 關懷名單</span>`;
+        } else if (level === 'care48') {
+          badge = `<span class="bg-amber-950 border border-amber-800 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold">🟡 第 3 天・關懷名單</span>`;
           cardBorder = "border-amber-800/60 bg-amber-950/10";
-        } else if (diffHours <= 0) {
+        } else if (level === 'overdue') {
           badge = `<span class="bg-neutral-800 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold">已逾期 / 今日退房</span>`;
         }
+
+        const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', visits: [] };
 
         return `
           <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
@@ -281,16 +393,17 @@
                 ${badge}
               </div>
               <div class="text-xs text-neutral-400 space-y-1">
+                <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '💎 長期客戶' : (profile.clientType === 'short' ? '🌟 短期客戶' : '⚪ 新客')}</span> | 累積: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
                 <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
-                <div>晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (續訂次數: ${g.roomExtendedCount || 0})</div>
+                <div>總預訂晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (已入住: 第 ${stayCurrentDay} 天)</div>
                 <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
                 ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1">📌 備註: ${g.note}</div>` : ''}
               </div>
             </div>
 
             <div class="pt-3 border-t border-neutral-800/80 flex flex-col gap-2">
-              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}')" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
+              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}', ${stayCurrentDay})" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
                 📋 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
@@ -307,38 +420,48 @@
       }).join("");
     }
 
-    // 6. 一鍵匯出 CSV (支援 Excel / Google Sheet / UTF-8 防亂碼)
+    // 7. 一鍵匯出 CSV
     window.exportToCSV = () => {
-      const list = getFilteredGuests();
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      const profileMap = buildClientProfileMap(guestList);
+      const list = getFilteredGuests(profileMap);
+
       if (list.length === 0) {
         alert("目前清單中沒有任何旅客資料可供匯出！");
         return;
       }
 
       const headers = [
-        "中文姓名", "護照英文姓名", "護照號碼", "身分證字號", "性別",
-        "出生年月日", "LINE暱稱", "抵達航班", "抵達時間", "離開時間",
-        "停留晚數", "接待專員", "狀態", "備註"
+        "中文姓名", "護照英文姓名", "護照號碼", "身分證字號", "客群分類",
+        "累積總點數", "本次點數", "性別", "出生年月日", "LINE暱稱",
+        "抵達航班", "抵達時間", "離開時間", "停留晚數", "接待專員", "狀態", "備註"
       ];
 
-      const rows = list.map(g => [
-        `"${(g.name || '').replace(/"/g, '""')}"`,
-        `"${(g.englishName || '').replace(/"/g, '""')}"`,
-        `"${(g.passport || '').replace(/"/g, '""')}"`,
-        `"${(g.nationalId || '').replace(/"/g, '""')}"`,
-        `"${g.gender === 'M' ? '男' : (g.gender === 'F' ? '女' : '')}"`,
-        `"${g.birthday || ''}"`,
-        `"${(g.lineNickname || '').replace(/"/g, '""')}"`,
-        `"${(g.airline || '').replace(/"/g, '""')}"`,
-        `"${(g.arrival || '').replace('T', ' ')}"`,
-        `"${(g.departure || '').replace('T', ' ')}"`,
-        `"${g.stayDays || 1}"`,
-        `"${(g.staff || '').replace(/"/g, '""')}"`,
-        `"${g.status || 'pending'}"`,
-        `"${(g.note || '').replace(/"/g, '""')}"`
-      ]);
+      const rows = list.map(g => {
+        const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const p = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客' };
 
-      // 加入 UTF-8 BOM (\uFEFF) 確保 Excel / Google Sheets 開啟不亂碼
+        return [
+          `"${(g.name || '').replace(/"/g, '""')}"`,
+          `"${(g.englishName || '').replace(/"/g, '""')}"`,
+          `"${(g.passport || '').replace(/"/g, '""')}"`,
+          `"${(g.nationalId || '').replace(/"/g, '""')}"`,
+          `"${p.clientTypeLabel}"`,
+          `"${p.totalPoints}"`,
+          `"${g.points || 0}"`,
+          `"${g.gender === 'M' ? '男' : (g.gender === 'F' ? '女' : '')}"`,
+          `"${g.birthday || ''}"`,
+          `"${(g.lineNickname || '').replace(/"/g, '""')}"`,
+          `"${(g.airline || '').replace(/"/g, '""')}"`,
+          `"${(g.arrival || '').replace('T', ' ')}"`,
+          `"${(g.departure || '').replace('T', ' ')}"`,
+          `"${g.stayDays || 1}"`,
+          `"${(g.staff || '').replace(/"/g, '""')}"`,
+          `"${g.status || 'pending'}"`,
+          `"${(g.note || '').replace(/"/g, '""')}"`
+        ];
+      });
+
       const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
@@ -346,19 +469,23 @@
 
       const dateStr = new Date().toISOString().split('T')[0];
       link.setAttribute("href", url);
-      link.setAttribute("download", `濟州島旅客名單_${currentFilter}_${dateStr}.csv`);
+      link.setAttribute("download", `濟州島旅客名單_${currentFilter}_${clientTypeFilter}_${dateStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     };
 
-    // 7. 頂部卡片點擊篩選切換
+    // 8. 篩選切換
     window.setCardFilter = (type) => {
       currentFilter = (currentFilter === type) ? 'all' : type;
       renderDashboard();
     };
 
-    // 8. 遮罩切換
+    window.setClientTypeFilter = (type) => {
+      clientTypeFilter = type;
+      renderDashboard();
+    };
+
     window.toggleMask = (id) => {
       if (unmaskedIds.has(id)) {
         unmaskedIds.delete(id);
@@ -368,7 +495,7 @@
       renderDashboard();
     };
 
-    // 9. 編輯 / 備註 Drawer 彈窗控制
+    // 9. 編輯 / 歷史紀錄 Drawer 彈窗
     let editingGuestId = null;
 
     window.openEditDrawer = (id) => {
@@ -376,12 +503,17 @@
       const g = allGuests[id];
       if (!g) return;
 
+      const guestList = Object.entries(allGuests).map(([i, d]) => ({ id: i, ...d }));
+      const profileMap = buildClientProfileMap(guestList);
+      const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+      const profile = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客', visits: [] };
+
       document.getElementById("editName").value = g.name || '';
       document.getElementById("editEnglishName").value = g.englishName || '';
       document.getElementById("editPassport").value = g.passport || '';
       document.getElementById("editNationalId").value = g.nationalId || '';
       document.getElementById("editBirthday").value = g.birthday || '';
-      document.getElementById("editGender").value = g.gender || '';
+      document.getElementById("editGender").value = g.gender || 'M';
       document.getElementById("editLineNickname").value = g.lineNickname || '';
       document.getElementById("editAirline").value = g.airline || '';
       document.getElementById("editArrival").value = g.arrival || '';
@@ -389,9 +521,43 @@
       document.getElementById("editStayDays").value = g.stayDays || 1;
       document.getElementById("editStaff").value = g.staff || '';
       document.getElementById("editStatus").value = g.status || 'pending';
+      document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editNote").value = g.note || '';
 
+      document.getElementById("drawerTotalPoints").innerText = profile.totalPoints;
+      document.getElementById("drawerVisitCount").innerText = profile.visits.length;
+      document.getElementById("drawerClientTag").innerText = profile.clientTypeLabel;
+
+      const historyListContainer = document.getElementById("historyListContainer");
+      historyListContainer.innerHTML = profile.visits.map((v, idx) => `
+        <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-3 text-xs space-y-1">
+          <div class="flex items-center justify-between text-neutral-300 font-medium">
+            <span>第 ${idx + 1} 次來訪：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '-'}</span>
+            <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
+          </div>
+          <div class="text-neutral-500 flex items-center justify-between text-[11px]">
+            <span>航班: ${v.airline || '-'} | 晚數: ${v.stayDays || 1} 晚 | 專員: ${v.staff || '未指派'}</span>
+            <span>狀態: ${v.status || 'pending'}</span>
+          </div>
+          ${v.note ? `<div class="text-amber-400/80 text-[10px] pt-0.5">備註: ${v.note}</div>` : ''}
+        </div>
+      `).join("");
+
+      document.getElementById("historyDrawerSection").classList.add("hidden");
+      document.getElementById("toggleHistoryBtn").innerText = `📜 展開歷史來訪行程 (${profile.visits.length} 次)`;
       document.getElementById("editDrawerModal").classList.remove("hidden");
+    };
+
+    window.toggleHistorySection = () => {
+      const section = document.getElementById("historyDrawerSection");
+      const btn = document.getElementById("toggleHistoryBtn");
+      if (section.classList.contains("hidden")) {
+        section.classList.remove("hidden");
+        btn.innerText = "🔼 收起歷史行程明細";
+      } else {
+        section.classList.add("hidden");
+        btn.innerText = "📜 展開歷史來訪行程明細";
+      }
     };
 
     window.closeEditDrawer = () => {
@@ -416,12 +582,13 @@
         stayDays: parseInt(document.getElementById("editStayDays").value, 10) || 1,
         staff: document.getElementById("editStaff").value.trim(),
         status: document.getElementById("editStatus").value,
+        points: parseInt(document.getElementById("editPoints").value, 10) || 0,
         note: document.getElementById("editNote").value.trim()
       };
 
       update(ref(db, `guests/${editingGuestId}`), updatedData).then(() => {
         closeEditDrawer();
-        alert("資料與備註已成功儲存！");
+        alert("資料、點數與備註已成功全面更新！");
       }).catch(err => {
         alert("儲存失敗: " + err.message);
       });
@@ -440,9 +607,9 @@
       }
     };
 
-    window.copyLineCareText = (name, staff, departure) => {
-      const text = `您好 ${name}！我是您的接待專員 ${staff}。提醒您預計退房時間為 ${departure.replace('T', ' ')}。若需要協助加訂續住、預訂送機或調整行程，請隨時於群組告知我們喔！`;
-      navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
+    window.copyLineCareText = (name, staff, departure, currentDay) => {
+      const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。您目前在濟州島已是第 ${currentDay} 天，預計退房時間為 ${departure.replace('T', ' ')}。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
+      navigator.clipboard.writeText(text).then(() => alert("已成功複製第 " + currentDay + " 天關懷話術至剪貼簿！"));
     };
 
     let currentExtendId = null;
@@ -523,10 +690,9 @@
           <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
           濟州島旅客與房務管理後台
         </h1>
-        <p class="text-[11px] text-neutral-400 mt-0.5">即時同步旅客登記名單、24h/48h 房務預警與續訂管理</p>
+        <p class="text-[11px] text-neutral-400 mt-0.5">即時同步旅客登記名單、第3天關懷/第4天續訂警戒、歷史來訪與點數系統</p>
       </div>
 
-      <!-- 分頁切換 -->
       <div class="bg-neutral-900 p-1 border border-neutral-800 rounded-2xl flex gap-1 w-full sm:w-auto">
         <button id="tabRosterBtn" onclick="switchTab('roster')" class="flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md">
           📋 旅客行程總表
@@ -537,7 +703,7 @@
       </div>
     </div>
 
-    <!-- 營運數據卡片 (點擊可過濾下方名單) -->
+    <!-- 頂部營運數據卡片 -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setCardFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
@@ -548,23 +714,40 @@
         <div id="statInIsland" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
       </div>
       <div id="cardCare48" onclick="setCardFilter('care48')" class="cursor-pointer bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 transition hover:border-amber-800">
-        <div class="text-[11px] text-amber-400 font-medium">🟡 48h 關懷名單</div>
+        <div class="text-[11px] text-amber-400 font-medium">🟡 第 3 天關懷名單</div>
         <div id="statCare48" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
       </div>
       <div id="cardAlert24" onclick="setCardFilter('alert24')" class="cursor-pointer bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-2xl p-3.5 transition hover:border-red-800">
-        <div class="text-[11px] text-red-400 font-medium">🔴 24h 訂房警戒</div>
+        <div class="text-[11px] text-red-400 font-medium">🔴 第 4 天訂房警戒</div>
         <div id="statAlert24" class="text-xl sm:text-2xl font-black text-red-500 mt-1 font-mono">0</div>
       </div>
     </div>
 
     <!-- 分頁 1: 旅客總表視圖 -->
     <div id="rosterView" class="space-y-3">
-      <!-- 搜尋與匯出操作列 -->
-      <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
-        <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE、專員或備註..." class="w-full sm:w-80 px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
-        
-        <button onclick="exportToCSV()" class="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm">
-          <span>📥</span> 匯出 CSV (Excel / Google Sheet)
+      
+      <!-- 搜尋列、客群快捷篩選按鈕與匯出按鈕 -->
+      <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
+        <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE、專員或備註..." class="w-full md:w-72 px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+
+        <!-- 客群快篩按鈕群 -->
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+          <button id="btnClientAll" onclick="setClientTypeFilter('all')" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-600 text-white shadow-sm">
+            全部客群
+          </button>
+          <button id="btnClientLong" onclick="setClientTypeFilter('long')" class="px-3 py-1.5 rounded-xl text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white">
+            💎 長期客戶
+          </button>
+          <button id="btnClientShort" onclick="setClientTypeFilter('short')" class="px-3 py-1.5 rounded-xl text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white">
+            🌟 短期客戶
+          </button>
+          <button id="btnClientOther" onclick="setClientTypeFilter('other')" class="px-3 py-1.5 rounded-xl text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-400 hover:text-white">
+            ⚪ 新客/其他
+          </button>
+        </div>
+
+        <button onclick="exportToCSV()" class="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm whitespace-nowrap">
+          <span>📥</span> 匯出 CSV
         </button>
       </div>
 
@@ -574,23 +757,42 @@
     <!-- 分頁 2: 房務警戒視圖 -->
     <div id="housekeepingView" class="hidden space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-xs font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
-        <span class="text-[11px] text-neutral-500">依退房時間動態計算</span>
+        <h3 class="text-xs font-bold text-neutral-300">住客第 3 天關懷 / 第 4 天續訂警戒追蹤</h3>
+        <span class="text-[11px] text-neutral-500">依抵達時間自動推算已在島天數</span>
       </div>
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
   </div>
 
-  <!-- 點擊姓名彈出：完整編輯與備註 Drawer 彈窗 -->
+  <!-- 點擊姓名彈出：工作人員全面修改 + 歷史紀錄 + 點數管理 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <h3 class="text-base font-bold text-white flex items-center gap-1.5">
-          <span>📝 編輯旅客資料與備註</span>
-        </h3>
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-1.5">
+            <span>📝 編輯旅客資料與歷程</span>
+          </h3>
+          <div class="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
+            <span>標籤: <b id="drawerClientTag" class="text-red-400">-</b></span>
+            <span>|</span>
+            <span>累計來訪: <b id="drawerVisitCount" class="text-white">0</b> 次</span>
+            <span>|</span>
+            <span>總點數: <b id="drawerTotalPoints" class="text-amber-400">0</b> 點</span>
+          </div>
+        </div>
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
+      </div>
+
+      <!-- 折疊按鈕：查看歷史行程 -->
+      <div>
+        <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
+          📜 展開歷史來訪行程明細
+        </button>
+        <div id="historyDrawerSection" class="hidden mt-2 space-y-2 max-h-48 overflow-y-auto p-1">
+          <div id="historyListContainer" class="space-y-1.5"></div>
+        </div>
       </div>
 
       <div class="space-y-3 text-xs">
@@ -652,10 +854,14 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">停留晚數</label>
-            <input id="editStayDays" type="number" min="1" max="30" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+            <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-amber-400 font-semibold mb-1">本次發放點數</label>
+            <input id="editPoints" type="number" min="0" placeholder="0" class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-400 font-bold outline-none focus:border-amber-500" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">接待專員</label>
@@ -673,7 +879,6 @@
           </div>
         </div>
 
-        <!-- 專用備註欄 -->
         <div>
           <label class="block text-amber-400 font-semibold mb-1">📌 房務 / 行程特殊備註</label>
           <textarea id="editNote" rows="3" placeholder="例如：房號 302、加嬰兒床、已收續住尾款等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-amber-500 placeholder:text-neutral-600 leading-relaxed"></textarea>
@@ -691,7 +896,7 @@
   <div id="extendModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
       <h3 class="text-sm font-bold text-white">🏨 快速辦理續住加訂</h3>
-      <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數（單次住宿不超過 5 晚）：</p>
+      <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數：</p>
       <div>
         <label class="block text-xs font-semibold text-neutral-300 mb-1">加訂住宿晚數</label>
         <select id="extendNightsSelect" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500">
@@ -700,6 +905,7 @@
           <option value="3">續訂 +3 晚</option>
           <option value="4">續訂 +4 晚</option>
           <option value="5">續訂 +5 晚</option>
+          <option value="7">續訂 +7 晚 (一週)</option>
         </select>
       </div>
       <div class="flex gap-2 pt-2">
