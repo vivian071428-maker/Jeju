@@ -10,7 +10,7 @@
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-    // 拆分 API Key 避免 GitHub 警報
+    // 拆分 API Key 避免 GitHub 誤報
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
 
@@ -27,12 +27,13 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // 狀態變數
     let allGuests = {};
-    let activeTab = 'roster'; // 'roster' | 'housekeeping'
+    let activeTab = 'roster'; 
+    let currentFilter = 'all'; // 'all' | 'inIsland' | 'care48' | 'alert24'
+    let unmaskedIds = new Set(); // 記錄當前解鎖遮罩的 guest id
     const ADMIN_PIN = "8888";
 
-    // 1. PIN 碼安全驗證
+    // 1. PIN 驗證
     const authOverlay = document.getElementById("authOverlay");
     const adminPinInput = document.getElementById("adminPin");
     const pinError = document.getElementById("pinError");
@@ -48,7 +49,7 @@
       }
     });
 
-    // 2. 即時監聽 Firebase 資料庫
+    // 2. 監聽資料庫
     function loadDatabaseListener() {
       const guestsRef = ref(db, "guests");
       onValue(guestsRef, (snapshot) => {
@@ -57,12 +58,18 @@
       });
     }
 
-    // 3. 核心運算與渲染
+    // 遮罩輔助函式
+    function maskString(str, visibleChars = 4) {
+      if (!str) return '-';
+      if (str.length <= visibleChars) return str;
+      return str.substring(0, visibleChars) + '****';
+    }
+
+    // 3. 渲染儀表板與計算
     function renderDashboard() {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const now = new Date().getTime();
 
-      // 計算統計數據
       let total = guestList.length;
       let care48Count = 0;
       let alert24Count = 0;
@@ -91,80 +98,144 @@
       document.getElementById("statAlert24").innerText = alert24Count;
       document.getElementById("statInIsland").innerText = inIslandCount;
 
-      renderRosterTable(guestList);
+      updateCardActiveStyles();
+      renderRoster(guestList, now);
       renderHousekeepingList(guestList, now);
     }
 
-    // 4. 渲染旅客總表
-    function renderRosterTable(guestList) {
-      const tbody = document.getElementById("rosterBody");
-      const searchVal = document.getElementById("searchInput").value.toLowerCase();
+    // 更新頂部卡片選中樣式
+    function updateCardActiveStyles() {
+      const cards = {
+        'all': document.getElementById("cardAll"),
+        'inIsland': document.getElementById("cardInIsland"),
+        'care48': document.getElementById("cardCare48"),
+        'alert24': document.getElementById("cardAlert24")
+      };
 
-      const filtered = guestList.filter(g => {
+      Object.entries(cards).forEach(([key, el]) => {
+        if (!el) return;
+        if (currentFilter === key) {
+          el.classList.add("ring-2", "ring-red-500", "bg-neutral-800");
+        } else {
+          el.classList.remove("ring-2", "ring-red-500", "bg-neutral-800");
+        }
+      });
+    }
+
+    // 4. 渲染旅客列表（支援頂部篩選與搜尋）
+    function renderRoster(guestList, now) {
+      const searchVal = document.getElementById("searchInput").value.toLowerCase();
+      const container = document.getElementById("rosterContainer");
+
+      // 依卡片過濾
+      let filtered = guestList.filter(g => {
+        const arrTime = new Date(g.arrival).getTime();
+        const depTime = new Date(g.departure).getTime();
+        const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
+
+        if (currentFilter === 'inIsland') return (now >= arrTime && now <= depTime);
+        if (currentFilter === 'care48') return (g.housekeepingStatus !== 'closed' && timeLeftHours > 24 && timeLeftHours <= 48);
+        if (currentFilter === 'alert24') return (g.housekeepingStatus !== 'closed' && timeLeftHours > 0 && timeLeftHours <= 24);
+        return true;
+      });
+
+      // 依關鍵字搜尋
+      filtered = filtered.filter(g => {
         return (g.name || "").toLowerCase().includes(searchVal) ||
                (g.englishName || "").toLowerCase().includes(searchVal) ||
                (g.passport || "").toLowerCase().includes(searchVal) ||
                (g.nationalId || "").toLowerCase().includes(searchVal) ||
                (g.lineNickname || "").toLowerCase().includes(searchVal) ||
-               (g.airline || "").toLowerCase().includes(searchVal);
+               (g.airline || "").toLowerCase().includes(searchVal) ||
+               (g.staff || "").toLowerCase().includes(searchVal) ||
+               (g.note || "").toLowerCase().includes(searchVal);
       });
 
       if (filtered.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-neutral-500 text-xs">查無符合條件的旅客資料</td></tr>`;
+        container.innerHTML = `<div class="text-center py-12 text-neutral-500 text-xs">查無符合條件的旅客資料</div>`;
         return;
       }
 
-      tbody.innerHTML = filtered.map(g => `
-        <tr class="border-b border-neutral-800 hover:bg-neutral-850/50 text-xs">
-          <td class="py-3 px-3">
-            <div class="font-bold text-white">${g.name || '未填'}</div>
-            <div class="text-[11px] text-neutral-400 font-mono">${g.englishName || '-'}</div>
-          </td>
-          <td class="py-3 px-3 font-mono text-neutral-300">
-            <div>${g.passport || '-'}</div>
-            <div class="text-[10px] text-neutral-500">${g.nationalId || '-'}</div>
-          </td>
-          <td class="py-3 px-3 text-neutral-300">
-            <div>${g.gender === 'M' ? '男' : '女'} / ${g.birthday || '-'}</div>
-            <div class="text-[11px] text-red-400">LINE: ${g.lineNickname || '-'}</div>
-          </td>
-          <td class="py-3 px-3 font-mono">
-            <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded text-[11px] font-bold">${g.airline || '-'}</span>
-          </td>
-          <td class="py-3 px-3 text-neutral-300 leading-tight">
-            <div>起: ${g.arrival ? g.arrival.replace('T', ' ') : '-'}</div>
-            <div>退: ${g.departure ? g.departure.replace('T', ' ') : '-'}</div>
-            <div class="text-[10px] text-neutral-500 font-bold mt-0.5">住 ${g.stayDays || 1} 晚</div>
-          </td>
-          <td class="py-3 px-3">
-            <input type="text" value="${g.staff || ''}" placeholder="指派專員" 
-              onchange="updateStaff('${g.id}', this.value)" 
-              class="w-24 px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs text-neutral-200 outline-none focus:border-red-500" />
-          </td>
-          <td class="py-3 px-3">
-            <select onchange="updateStatus('${g.id}', this.value)" class="px-2 py-1 bg-neutral-950 border border-neutral-700 rounded text-xs text-neutral-200 outline-none focus:border-red-500">
-              <option value="pending" ${g.status === 'pending' ? 'selected' : ''}>待確認</option>
-              <option value="confirmed" ${g.status === 'confirmed' ? 'selected' : ''}>已確認</option>
-              <option value="checked_in" ${g.status === 'checked_in' ? 'selected' : ''}>已入住</option>
-              <option value="completed" ${g.status === 'completed' ? 'selected' : ''}>已完成</option>
-              <option value="cancelled" ${g.status === 'cancelled' ? 'selected' : ''}>已取消</option>
-            </select>
-          </td>
-          <td class="py-3 px-3 text-right">
-            <button onclick="deleteGuest('${g.id}')" class="text-neutral-500 hover:text-red-400 transition p-1">刪除</button>
-          </td>
-        </tr>
-      `).join("");
+      container.innerHTML = filtered.map(g => {
+        const isUnmasked = unmaskedIds.has(g.id);
+        const passText = isUnmasked ? (g.passport || '-') : maskString(g.passport, 4);
+        const idText = isUnmasked ? (g.nationalId || '-') : maskString(g.nationalId, 3);
+        const eyeIcon = isUnmasked 
+          ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
+          : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
+
+        let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-300">待確認</span>`;
+        if (g.status === 'confirmed') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-400 border border-blue-800/60">已確認</span>`;
+        if (g.status === 'checked_in') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60">已入住</span>`;
+        if (g.status === 'completed') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-400">已完成</span>`;
+        if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60">已取消</span>`;
+
+        return `
+          <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
+            <!-- 頂部：姓名（點擊彈出編輯）+ 狀態 -->
+            <div class="flex items-center justify-between gap-2 border-b border-neutral-800 pb-2.5">
+              <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-baseline gap-1.5">
+                <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
+                  ${g.name || '未填寫'}
+                </span>
+                <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
+                <span class="text-[10px] text-red-500 font-normal">✎ 編輯/備註</span>
+              </button>
+              <div>${statusBadge}</div>
+            </div>
+
+            <!-- 中間資訊欄 (手機直列/雙欄自適應) -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
+              <div class="space-y-1">
+                <div class="flex items-center gap-1.5 font-mono text-neutral-300">
+                  <span>護照: ${passText}</span>
+                  <button onclick="toggleMask('${g.id}')" class="p-0.5 rounded hover:bg-neutral-800 transition" title="切換遮罩">
+                    ${eyeIcon}
+                  </button>
+                </div>
+                <div class="text-[11px] text-neutral-500 font-mono">身分證: ${idText}</div>
+                <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
+              </div>
+
+              <div class="space-y-1">
+                <div>航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${g.airline || '-'}</span></div>
+                <div>抵達: <span class="text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
+                <div>離開: <span class="text-neutral-300">${g.departure ? g.departure.replace('T', ' ') : '-'}</span> <span class="text-neutral-500">(${g.stayDays || 1} 晚)</span></div>
+              </div>
+            </div>
+
+            <!-- 備註即時預覽 (若有) -->
+            ${g.note ? `
+              <div class="bg-neutral-950/70 border border-neutral-800 rounded-xl p-2 text-[11px] text-amber-300/90 flex items-start gap-1.5">
+                <span class="text-amber-500">📌</span>
+                <span class="truncate">${g.note}</span>
+              </div>
+            ` : ''}
+
+            <!-- 底部快速操作 -->
+            <div class="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-xs">
+              <div class="text-[11px] text-neutral-400">專員: <span class="text-neutral-200 font-medium">${g.staff || '未指派'}</span></div>
+              <div class="flex items-center gap-2">
+                <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition">
+                  完整資料
+                </button>
+                <button onclick="deleteGuest('${g.id}')" class="px-2 py-1 text-neutral-500 hover:text-red-400 transition text-xs">
+                  刪除
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
     }
 
-    // 5. 渲染房務預警看板
+    // 5. 渲染房務警戒看板
     function renderHousekeepingList(guestList, now) {
       const container = document.getElementById("housekeepingCards");
-      
       const activeStayGuests = guestList.filter(g => g.housekeepingStatus !== 'closed');
 
       if (activeStayGuests.length === 0) {
-        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-sm">目前無待處理的房務或警戒名單。</div>`;
+        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無待處理的房務或警戒名單。</div>`;
         return;
       }
 
@@ -186,29 +257,32 @@
         }
 
         return `
-          <div class="border ${cardBorder} bg-neutral-900 rounded-xl p-4 flex flex-col justify-between gap-3 shadow-lg">
+          <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
             <div>
               <div class="flex items-center justify-between gap-2 mb-2">
-                <span class="text-sm font-bold text-white">${g.name || '未填'} <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span></span>
+                <button onclick="openEditDrawer('${g.id}')" class="text-sm font-bold text-white hover:text-red-400 transition text-left underline decoration-neutral-700">
+                  ${g.name || '未填'} <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span>
+                </button>
                 ${badge}
               </div>
               <div class="text-xs text-neutral-400 space-y-1">
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
-                <div>入住退房: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
-                <div>目前晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (已加訂: ${g.roomExtendedCount || 0} 次)</div>
-                <div>接待專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
+                <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${g.departure ? g.departure.split('T')[0] : '-'}</span></div>
+                <div>晚數: <span class="text-red-400 font-bold font-mono">${g.stayDays || 1} 晚</span> (續訂次數: ${g.roomExtendedCount || 0})</div>
+                <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
+                ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1">📌 備註: ${g.note}</div>` : ''}
               </div>
             </div>
 
             <div class="pt-3 border-t border-neutral-800/80 flex flex-col gap-2">
-              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}')" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-lg transition">
+              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure}')" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
                 📋 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="openExtendModal('${g.id}', ${g.stayDays || 1})" class="py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition shadow-md shadow-red-950">
+                <button onclick="openExtendModal('${g.id}', ${g.stayDays || 1})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
                   + 續住加訂
                 </button>
-                <button onclick="closeStayCase('${g.id}')" class="py-1.5 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-lg transition">
+                <button onclick="closeStayCase('${g.id}')" class="py-2 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-xl transition">
                   ✓ 結案退房
                 </button>
               </div>
@@ -218,15 +292,82 @@
       }).join("");
     }
 
-    // 6. 業務操作函式
-    window.updateStaff = (id, val) => {
-      update(ref(db, `guests/${id}`), { staff: val.trim() });
+    // 6. 卡片點擊篩選切換
+    window.setCardFilter = (type) => {
+      currentFilter = (currentFilter === type) ? 'all' : type;
+      renderDashboard();
     };
 
-    window.updateStatus = (id, val) => {
-      update(ref(db, `guests/${id}`), { status: val });
+    // 7. 遮罩切換
+    window.toggleMask = (id) => {
+      if (unmaskedIds.has(id)) {
+        unmaskedIds.delete(id);
+      } else {
+        unmaskedIds.add(id);
+      }
+      renderDashboard();
     };
 
+    // 8. 編輯 / 備註 Drawer 彈窗控制
+    let editingGuestId = null;
+
+    window.openEditDrawer = (id) => {
+      editingGuestId = id;
+      const g = allGuests[id];
+      if (!g) return;
+
+      document.getElementById("editName").value = g.name || '';
+      document.getElementById("editEnglishName").value = g.englishName || '';
+      document.getElementById("editPassport").value = g.passport || '';
+      document.getElementById("editNationalId").value = g.nationalId || '';
+      document.getElementById("editBirthday").value = g.birthday || '';
+      document.getElementById("editGender").value = g.gender || '';
+      document.getElementById("editLineNickname").value = g.lineNickname || '';
+      document.getElementById("editAirline").value = g.airline || '';
+      document.getElementById("editArrival").value = g.arrival || '';
+      document.getElementById("editDeparture").value = g.departure || '';
+      document.getElementById("editStayDays").value = g.stayDays || 1;
+      document.getElementById("editStaff").value = g.staff || '';
+      document.getElementById("editStatus").value = g.status || 'pending';
+      document.getElementById("editNote").value = g.note || '';
+
+      document.getElementById("editDrawerModal").classList.remove("hidden");
+    };
+
+    window.closeEditDrawer = () => {
+      document.getElementById("editDrawerModal").classList.add("hidden");
+      editingGuestId = null;
+    };
+
+    window.saveGuestDetails = () => {
+      if (!editingGuestId) return;
+
+      const updatedData = {
+        name: document.getElementById("editName").value.trim(),
+        englishName: document.getElementById("editEnglishName").value.trim().toUpperCase(),
+        passport: document.getElementById("editPassport").value.trim().toUpperCase(),
+        nationalId: document.getElementById("editNationalId").value.trim().toUpperCase(),
+        birthday: document.getElementById("editBirthday").value,
+        gender: document.getElementById("editGender").value,
+        lineNickname: document.getElementById("editLineNickname").value.trim(),
+        airline: document.getElementById("editAirline").value.trim().toUpperCase(),
+        arrival: document.getElementById("editArrival").value,
+        departure: document.getElementById("editDeparture").value,
+        stayDays: parseInt(document.getElementById("editStayDays").value, 10) || 1,
+        staff: document.getElementById("editStaff").value.trim(),
+        status: document.getElementById("editStatus").value,
+        note: document.getElementById("editNote").value.trim()
+      };
+
+      update(ref(db, `guests/${editingGuestId}`), updatedData).then(() => {
+        closeEditDrawer();
+        alert("資料與備註已成功儲存！");
+      }).catch(err => {
+        alert("儲存失敗: " + err.message);
+      });
+    };
+
+    // 9. 房務操作與續訂
     window.deleteGuest = (id) => {
       if (confirm("確定要刪除這筆旅客資料嗎？（刪除後無法復原）")) {
         remove(ref(db, `guests/${id}`));
@@ -244,7 +385,6 @@
       navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
     };
 
-    // 7. 續住彈窗控制
     let currentExtendId = null;
     let currentStayDays = 1;
 
@@ -280,19 +420,19 @@
       });
     };
 
-    // 8. 分頁與搜尋切換
+    // 10. 分頁切換
     window.switchTab = (tab) => {
       activeTab = tab;
       if (tab === 'roster') {
         document.getElementById("rosterView").classList.remove("hidden");
         document.getElementById("housekeepingView").classList.add("hidden");
-        document.getElementById("tabRosterBtn").className = "px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg shadow-md";
-        document.getElementById("tabHousekeepingBtn").className = "px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg";
+        document.getElementById("tabRosterBtn").className = "px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md";
+        document.getElementById("tabHousekeepingBtn").className = "px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl";
       } else {
         document.getElementById("rosterView").classList.add("hidden");
         document.getElementById("housekeepingView").classList.remove("hidden");
-        document.getElementById("tabHousekeepingBtn").className = "px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg shadow-md";
-        document.getElementById("tabRosterBtn").className = "px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg";
+        document.getElementById("tabHousekeepingBtn").className = "px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md";
+        document.getElementById("tabRosterBtn").className = "px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl";
       }
     };
 
@@ -300,9 +440,9 @@
   </script>
 </head>
 
-<body class="bg-neutral-950 text-neutral-100 min-h-screen p-4 md:p-8">
+<body class="bg-neutral-950 text-neutral-100 min-h-screen p-3 md:p-8 selection:bg-red-600 selection:text-white pb-24">
 
-  <!-- 管理者解鎖遮罩 -->
+  <!-- PIN 驗證遮罩 -->
   <div id="authOverlay" class="fixed inset-0 bg-neutral-950/95 flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 text-center shadow-2xl">
       <div class="w-12 h-12 bg-red-950 border border-red-800 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl font-black">🔒</div>
@@ -314,90 +454,180 @@
     </div>
   </div>
 
-  <div class="max-w-7xl mx-auto space-y-6">
+  <div class="max-w-6xl mx-auto space-y-5">
     
     <!-- 頂部導航與標題 -->
-    <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-neutral-800 pb-5">
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
       <div>
-        <h1 class="text-2xl font-black text-white tracking-tight flex items-center gap-2">
+        <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
           <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
           濟州島旅客與房務管理後台
         </h1>
-        <p class="text-xs text-neutral-400 mt-1">即時同步旅客登記名單、24h/48h 房務預警與續訂管理</p>
+        <p class="text-[11px] text-neutral-400 mt-0.5">即時同步旅客登記名單、24h/48h 房務預警與續訂管理</p>
       </div>
 
-      <!-- 分頁切換鈕 -->
-      <div class="bg-neutral-900 p-1 border border-neutral-800 rounded-xl flex gap-1">
-        <button id="tabRosterBtn" onclick="switchTab('roster')" class="px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-lg shadow-md">
+      <!-- 分頁切換 -->
+      <div class="bg-neutral-900 p-1 border border-neutral-800 rounded-2xl flex gap-1 w-full sm:w-auto">
+        <button id="tabRosterBtn" onclick="switchTab('roster')" class="flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md">
           📋 旅客行程總表
         </button>
-        <button id="tabHousekeepingBtn" onclick="switchTab('housekeeping')" class="px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-lg">
+        <button id="tabHousekeepingBtn" onclick="switchTab('housekeeping')" class="flex-1 sm:flex-initial px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl">
           🏨 房務與續訂警戒
         </button>
       </div>
     </div>
 
-    <!-- 營運數據卡片 -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+    <!-- 營運數據卡片 (點擊可直接過濾下方名單) -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+      <div id="cardAll" onclick="setCardFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
-        <div id="statTotal" class="text-2xl font-black text-white mt-1 font-mono">0</div>
+        <div id="statTotal" class="text-xl sm:text-2xl font-black text-white mt-1 font-mono">0</div>
       </div>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-4">
+      <div id="cardInIsland" onclick="setCardFilter('inIsland')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">當前在島人數</div>
-        <div id="statInIsland" class="text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
+        <div id="statInIsland" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
       </div>
-      <div class="bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-xl p-4">
+      <div id="cardCare48" onclick="setCardFilter('care48')" class="cursor-pointer bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 transition hover:border-amber-800">
         <div class="text-[11px] text-amber-400 font-medium">🟡 48h 關懷名單</div>
-        <div id="statCare48" class="text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
+        <div id="statCare48" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
       </div>
-      <div class="bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-xl p-4">
+      <div id="cardAlert24" onclick="setCardFilter('alert24')" class="cursor-pointer bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-2xl p-3.5 transition hover:border-red-800">
         <div class="text-[11px] text-red-400 font-medium">🔴 24h 訂房警戒</div>
-        <div id="statAlert24" class="text-2xl font-black text-red-500 mt-1 font-mono">0</div>
+        <div id="statAlert24" class="text-xl sm:text-2xl font-black text-red-500 mt-1 font-mono">0</div>
       </div>
     </div>
 
     <!-- 分頁 1: 旅客總表視圖 -->
-    <div id="rosterView" class="space-y-4">
-      <div class="flex items-center justify-between gap-3">
-        <input id="searchInput" placeholder="🔍 搜尋旅客姓名、護照、身分證、LINE 暱稱或航班..." class="w-full md:w-80 px-3.5 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500" />
+    <div id="rosterView" class="space-y-3">
+      <div>
+        <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE 或備註..." class="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
       </div>
 
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl overflow-x-auto shadow-2xl">
-        <table class="w-full text-left border-collapse min-w-[800px]">
-          <thead>
-            <tr class="border-b border-neutral-800 bg-neutral-950/60 text-[11px] text-neutral-400 font-bold uppercase tracking-wider">
-              <th class="py-3 px-3">旅客姓名</th>
-              <th class="py-3 px-3">證件資訊</th>
-              <th class="py-3 px-3">性別/生日/LINE</th>
-              <th class="py-3 px-3">航班</th>
-              <th class="py-3 px-3">抵達/離開/晚數</th>
-              <th class="py-3 px-3">接待專員</th>
-              <th class="py-3 px-3">狀態</th>
-              <th class="py-3 px-3 text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody id="rosterBody" class="divide-y divide-neutral-800/50"></tbody>
-        </table>
-      </div>
+      <!-- 手機友善卡片列表容器 -->
+      <div id="rosterContainer" class="space-y-3"></div>
     </div>
 
     <!-- 分頁 2: 房務警戒視圖 -->
-    <div id="housekeepingView" class="hidden space-y-4">
+    <div id="housekeepingView" class="hidden space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
-        <span class="text-xs text-neutral-500">系統自動依據預計退房時間分類</span>
+        <h3 class="text-xs font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
+        <span class="text-[11px] text-neutral-500">依退房時間動態計算</span>
       </div>
-      <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+      <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
   </div>
 
-  <!-- 續住加訂彈窗 (最多加訂 5 晚) -->
-  <div id="extendModal" class="hidden fixed inset-0 bg-neutral-950/80 flex items-center justify-center p-4 z-50">
+  <!-- 點擊姓名彈出：完整編輯與備註 Drawer 彈窗 -->
+  <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
+      
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center gap-1.5">
+          <span>📝 編輯旅客資料與備註</span>
+        </h3>
+        <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">中文真實姓名</label>
+            <input id="editName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">護照英文姓名</label>
+            <input id="editEnglishName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">護照號碼</label>
+            <input id="editPassport" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">身分證字號</label>
+            <input id="editNationalId" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">出生年月日</label>
+            <input id="editBirthday" type="date" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">性別</label>
+            <select id="editGender" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500">
+              <option value="M">男 (Male)</option>
+              <option value="F">女 (Female)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
+            <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">抵達航班代碼</label>
+            <input id="editAirline" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">抵達時間</label>
+            <input id="editArrival" type="datetime-local" class="w-full px-2.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">離開時間</label>
+            <input id="editDeparture" type="datetime-local" class="w-full px-2.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">停留晚數</label>
+            <input id="editStayDays" type="number" min="1" max="30" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">接待專員</label>
+            <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">處理狀態</label>
+            <select id="editStatus" class="w-full px-2 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500">
+              <option value="pending">待確認</option>
+              <option value="confirmed">已確認</option>
+              <option value="checked_in">已入住</option>
+              <option value="completed">已完成</option>
+              <option value="cancelled">已取消</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- 專用備註欄 -->
+        <div>
+          <label class="block text-amber-400 font-semibold mb-1">📌 房務 / 行程特殊備註</label>
+          <textarea id="editNote" rows="3" placeholder="例如：房號 302、需要加嬰兒床、已收取現金尾款等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-amber-500 placeholder:text-neutral-600 leading-relaxed"></textarea>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-2 border-t border-neutral-800">
+        <button onclick="closeEditDrawer()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
+        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">儲存變更</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 續住加訂彈窗 -->
+  <div id="extendModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
       <h3 class="text-sm font-bold text-white">🏨 快速辦理續住加訂</h3>
-      <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數（客人單次住宿不超過 5 晚）：</p>
+      <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數（單次住宿不超過 5 晚）：</p>
       <div>
         <label class="block text-xs font-semibold text-neutral-300 mb-1">加訂住宿晚數</label>
         <select id="extendNightsSelect" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500">
