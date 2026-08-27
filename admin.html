@@ -122,12 +122,12 @@
       });
     }
 
-    // 4. 渲染旅客行程總表
-    function renderRoster(guestList, now) {
+    // 獲取當前過濾後的旅客清單（用於渲染與匯出）
+    function getFilteredGuests() {
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      const now = new Date().getTime();
       const searchVal = document.getElementById("searchInput").value.toLowerCase();
-      const container = document.getElementById("rosterContainer");
 
-      // 卡片篩選
       let filtered = guestList.filter(g => {
         const arrTime = new Date(g.arrival).getTime();
         const depTime = new Date(g.departure).getTime();
@@ -139,8 +139,7 @@
         return true;
       });
 
-      // 關鍵字搜尋
-      filtered = filtered.filter(g => {
+      return filtered.filter(g => {
         return (g.name || "").toLowerCase().includes(searchVal) ||
                (g.englishName || "").toLowerCase().includes(searchVal) ||
                (g.passport || "").toLowerCase().includes(searchVal) ||
@@ -150,6 +149,12 @@
                (g.staff || "").toLowerCase().includes(searchVal) ||
                (g.note || "").toLowerCase().includes(searchVal);
       });
+    }
+
+    // 4. 渲染旅客行程總表
+    function renderRoster(guestList, now) {
+      const container = document.getElementById("rosterContainer");
+      const filtered = getFilteredGuests();
 
       if (filtered.length === 0) {
         container.innerHTML = `<div class="text-center py-12 text-neutral-500 text-xs">查無符合條件的旅客資料</div>`;
@@ -225,11 +230,10 @@
       }).join("");
     }
 
-    // 5. 渲染房務警戒看板（同樣支援頂部卡片過濾）
+    // 5. 渲染房務警戒看板
     function renderHousekeepingList(guestList, now) {
       const container = document.getElementById("housekeepingCards");
       
-      // 房務看板過濾：排除已結案的住客，並套用頂部卡片篩選條件
       let activeStayGuests = guestList.filter(g => {
         const arrTime = new Date(g.arrival).getTime();
         const depTime = new Date(g.departure).getTime();
@@ -303,13 +307,58 @@
       }).join("");
     }
 
-    // 6. 頂部卡片點擊篩選切換
+    // 6. 一鍵匯出 CSV (支援 Excel / Google Sheet / UTF-8 防亂碼)
+    window.exportToCSV = () => {
+      const list = getFilteredGuests();
+      if (list.length === 0) {
+        alert("目前清單中沒有任何旅客資料可供匯出！");
+        return;
+      }
+
+      const headers = [
+        "中文姓名", "護照英文姓名", "護照號碼", "身分證字號", "性別",
+        "出生年月日", "LINE暱稱", "抵達航班", "抵達時間", "離開時間",
+        "停留晚數", "接待專員", "狀態", "備註"
+      ];
+
+      const rows = list.map(g => [
+        `"${(g.name || '').replace(/"/g, '""')}"`,
+        `"${(g.englishName || '').replace(/"/g, '""')}"`,
+        `"${(g.passport || '').replace(/"/g, '""')}"`,
+        `"${(g.nationalId || '').replace(/"/g, '""')}"`,
+        `"${g.gender === 'M' ? '男' : (g.gender === 'F' ? '女' : '')}"`,
+        `"${g.birthday || ''}"`,
+        `"${(g.lineNickname || '').replace(/"/g, '""')}"`,
+        `"${(g.airline || '').replace(/"/g, '""')}"`,
+        `"${(g.arrival || '').replace('T', ' ')}"`,
+        `"${(g.departure || '').replace('T', ' ')}"`,
+        `"${g.stayDays || 1}"`,
+        `"${(g.staff || '').replace(/"/g, '""')}"`,
+        `"${g.status || 'pending'}"`,
+        `"${(g.note || '').replace(/"/g, '""')}"`
+      ]);
+
+      // 加入 UTF-8 BOM (\uFEFF) 確保 Excel / Google Sheets 開啟不亂碼
+      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      const dateStr = new Date().toISOString().split('T')[0];
+      link.setAttribute("href", url);
+      link.setAttribute("download", `濟州島旅客名單_${currentFilter}_${dateStr}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
+    // 7. 頂部卡片點擊篩選切換
     window.setCardFilter = (type) => {
       currentFilter = (currentFilter === type) ? 'all' : type;
       renderDashboard();
     };
 
-    // 7. 遮罩切換
+    // 8. 遮罩切換
     window.toggleMask = (id) => {
       if (unmaskedIds.has(id)) {
         unmaskedIds.delete(id);
@@ -319,7 +368,7 @@
       renderDashboard();
     };
 
-    // 8. 編輯 / 備註 Drawer 彈窗控制
+    // 9. 編輯 / 備註 Drawer 彈窗控制
     let editingGuestId = null;
 
     window.openEditDrawer = (id) => {
@@ -378,7 +427,7 @@
       });
     };
 
-    // 9. 房務操作與續訂
+    // 10. 房務操作與續訂
     window.deleteGuest = (id) => {
       if (confirm("確定要刪除這筆旅客資料嗎？（刪除後無法復原）")) {
         remove(ref(db, `guests/${id}`));
@@ -431,7 +480,7 @@
       });
     };
 
-    // 10. 分頁切換
+    // 11. 分頁切換
     window.switchTab = (tab) => {
       activeTab = tab;
       if (tab === 'roster') {
@@ -488,7 +537,7 @@
       </div>
     </div>
 
-    <!-- 營運數據卡片 (點擊可過濾下方旅客總表或房務看板) -->
+    <!-- 營運數據卡片 (點擊可過濾下方名單) -->
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setCardFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
@@ -510,8 +559,13 @@
 
     <!-- 分頁 1: 旅客總表視圖 -->
     <div id="rosterView" class="space-y-3">
-      <div>
-        <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE、專員或備註..." class="w-full px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+      <!-- 搜尋與匯出操作列 -->
+      <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
+        <input id="searchInput" placeholder="🔍 搜尋姓名、護照、身分證、LINE、專員或備註..." class="w-full sm:w-80 px-3.5 py-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+        
+        <button onclick="exportToCSV()" class="px-4 py-2.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm">
+          <span>📥</span> 匯出 CSV (Excel / Google Sheet)
+        </button>
       </div>
 
       <div id="rosterContainer" class="space-y-3"></div>
