@@ -117,25 +117,29 @@
       return profileMap;
     }
 
-    // 房務倒數運算
+    // 核心房務倒數運算（修正判定順序：優先計算退房倒數）
     function getHousekeepingAlertLevel(g, now) {
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
         return 'closed';
       }
 
-      const arrTime = new Date(g.arrival).getTime();
+      const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
       const depTime = g.departure ? new Date(g.departure).getTime() : 0;
 
-      if (now < arrTime) return 'upcoming';
       if (!depTime || g.isDepartureUncertain) return 'normal';
       if (now > depTime) return 'overdue';
 
+      // 若離抵達濟州島還有超過 48 小時以上，才視為遠期未抵達
+      const hoursUntilArrival = (arrTime - now) / (1000 * 60 * 60);
+      if (hoursUntilArrival > 48) return 'upcoming';
+
+      // 計算離退房時間剩餘小時數
       const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
 
       if (timeLeftHours <= 24) {
-        return 'alert24';
+        return 'alert24'; // 倒數第 1 晚 (明天退房 / 24h 內，必須確認續房)
       } else if (timeLeftHours <= 48) {
-        return 'care48';
+        return 'care48';  // 倒數第 2 晚 (48h 內，主動關懷)
       } else {
         return 'normal';
       }
@@ -156,9 +160,10 @@
       let inIslandCount = 0;
 
       guestList.forEach(g => {
-        const arrTime = new Date(g.arrival).getTime();
+        const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
         const depTime = g.departure ? new Date(g.departure).getTime() : 0;
 
+        // 當前在島判定：已抵達且未超過退房時間（或離開時間未定）
         if (now >= arrTime && (g.isDepartureUncertain || !depTime || now <= depTime)) {
           inIslandCount++;
         }
@@ -224,7 +229,7 @@
       const searchVal = document.getElementById("searchInput").value.toLowerCase();
 
       let filtered = guestList.filter(g => {
-        const arrTime = new Date(g.arrival).getTime();
+        const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
         const depTime = g.departure ? new Date(g.departure).getTime() : 0;
         const level = getHousekeepingAlertLevel(g, now);
         const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
@@ -354,7 +359,7 @@
       const container = document.getElementById("housekeepingCards");
       
       let activeStayGuests = guestList.filter(g => {
-        const arrTime = new Date(g.arrival).getTime();
+        const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
         const depTime = g.departure ? new Date(g.departure).getTime() : 0;
         const level = getHousekeepingAlertLevel(g, now);
 
