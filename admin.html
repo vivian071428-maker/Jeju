@@ -201,16 +201,26 @@
       });
     }
 
-    // 5. 單一下拉篩選核心邏輯
+    // 5. 單一下拉篩選核心邏輯（含24小時內即時抵達排序）
     function getFilteredGuests(profileMap) {
-      const guestList = Object.entries(allGuests)
-        .map(([id, data]) => ({ id, ...data }))
-        .sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+      let guestList = Object.entries(allGuests)
+        .map(([id, data]) => ({ id, ...data }));
 
       const now = new Date().getTime();
       const searchVal = document.getElementById("searchInput").value.toLowerCase().trim();
       const unifiedFilter = document.getElementById("unifiedFilterSelect").value;
       const referrerVal = document.getElementById("filterReferrerInput").value.toLowerCase().trim();
+
+      // 基礎排序：若選「24小時內抵達」，依抵達時間「由近到遠」排序；否則維持建立時間倒序
+      if (unifiedFilter === '24h_arrival') {
+        guestList.sort((a, b) => {
+          const tA = a.arrival ? new Date(a.arrival).getTime() : 0;
+          const tB = b.arrival ? new Date(b.arrival).getTime() : 0;
+          return tA - tB;
+        });
+      } else {
+        guestList.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+      }
 
       let filtered = guestList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
@@ -229,6 +239,13 @@
         if (unifiedFilter === 'short' && cType !== 'short') return false;
         if (unifiedFilter === 'other' && cType !== 'other') return false;
         
+        // 24小時內即將抵達 (Real-time: 未來 0h ~ 24h 內)
+        if (unifiedFilter === '24h_arrival') {
+          const diffHours = (arrTime - now) / (1000 * 60 * 60);
+          if (diffHours < 0 || diffHours > 24) return false;
+        }
+
+        // 一週內抵達 (未來 0 ~ 7 天)
         if (unifiedFilter === 'week') {
           const diffDays = (arrTime - now) / (1000 * 60 * 60 * 24);
           if (diffDays < 0 || diffDays > 7) return false;
@@ -316,6 +333,18 @@
           ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 text-[10px]">共 ${profile.allVisits.length} 筆預約行程</span>`
           : '';
 
+        // 24小時內抵達倒數提示
+        let countdownArrivalBadge = '';
+        if (g.arrival) {
+          const arrT = new Date(g.arrival).getTime();
+          const diffH = (arrT - now) / (1000 * 60 * 60);
+          if (diffH >= 0 && diffH <= 24) {
+            const h = Math.floor(diffH);
+            const m = Math.floor((diffH - h) * 60);
+            countdownArrivalBadge = `<span class="px-1.5 py-0.5 rounded bg-red-950/80 border border-red-800/60 text-red-400 font-mono text-[10px] font-bold animate-pulse">${h > 0 ? h + '小時' : ''}${m}分後抵達</span>`;
+          }
+        }
+
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-2 border-b border-neutral-800 pb-2.5">
@@ -325,6 +354,7 @@
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
+                ${countdownArrivalBadge}
                 ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold">#${g.memberId}</span>` : ''}
                 ${reservationSummary}
                 <span class="text-[10px] text-red-500 font-normal">✎ 修改</span>
@@ -349,7 +379,7 @@
 
               <div class="space-y-1">
                 <div>航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${g.airline || '-'}</span></div>
-                <div>抵達: <span class="text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
+                <div>抵達: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
                 <div>離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${g.isDepartureUncertain ? '天數未定' : (g.stayDays || 1) + ' 晚'})</span></div>
                 <div>本次發放積分: <span class="text-neutral-200 font-mono font-bold">${g.points || 0}</span> 點</div>
               </div>
@@ -845,9 +875,10 @@
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             
-            <!-- 單一全功能篩選下拉選單 -->
+            <!-- 單一全功能篩選下拉選單 (無Emoji) -->
             <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
               <option value="all">全部名單</option>
+              <option value="24h_arrival">24小時內即將抵達</option>
               <option value="long">長期客戶</option>
               <option value="short">短期客戶</option>
               <option value="other">新客/其他</option>
