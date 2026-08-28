@@ -76,33 +76,13 @@
       const prefix = clean.replace(/[^A-Z0-9]/g, '');
 
       const airlineMap = {
-        'KE': '大韓航空',
-        'OZ': '韓亞航空',
-        '7C': '濟州航空',
-        'TW': '德威航空',
-        'LJ': '真航空',
-        'BX': '釜山航空',
-        'RS': '首爾航空',
-        'ZE': '易斯達航空',
-        'CI': '中華航空',
-        'BR': '長榮航空',
-        'IT': '台灣虎航',
-        'JX': '星宇航空',
-        'CX': '國泰航空',
-        'UO': '香港快運',
-        'HX': '香港航空',
-        'MU': '中國東方航空',
-        'CZ': '中國南方航空',
-        'CA': '中國國際航空',
-        'HO': '吉祥航空',
-        '9C': '春秋航空',
-        'MF': '廈門航空',
-        'SC': '山東航空',
-        'JL': '日本航空',
-        'NH': '全日空',
-        'MM': '樂桃航空',
-        'TR': '酷航',
-        'SQ': '新加坡航空'
+        'KE': '大韓航空', 'OZ': '韓亞航空', '7C': '濟州航空', 'TW': '德威航空',
+        'LJ': '真航空', 'BX': '釜山航空', 'RS': '首爾航空', 'ZE': '易斯達航空',
+        'CI': '中華航空', 'BR': '長榮航空', 'IT': '台灣虎航', 'JX': '星宇航空',
+        'CX': '國泰航空', 'UO': '香港快運', 'HX': '香港航空', 'MU': '中國東方航空',
+        'CZ': '中國南方航空', 'CA': '中國國際航空', 'HO': '吉祥航空', '9C': '春秋航空',
+        'MF': '廈門航空', 'SC': '山東航空', 'JL': '日本航空', 'NH': '全日空',
+        'MM': '樂桃航空', 'TR': '酷航', 'SQ': '新加坡航空'
       };
 
       for (const [code, name] of Object.entries(airlineMap)) {
@@ -112,19 +92,25 @@
     }
 
     function formatNationalId(val) {
-      let clean = val.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      let clean = (val || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (!clean) return '';
       let first = clean.charAt(0).replace(/[^A-Z]/g, '');
       let rest = clean.substring(1).replace(/[^0-9]/g, '').slice(0, 9);
       return first + rest;
     }
 
-    // 3. 客戶 CRM 聚合引擎
+    // 3. 全局客戶 CRM 聚合引擎（100% 納入所有新舊登記旅客）
     function buildClientProfileMap(guestList, nowTs) {
       const profileMap = {};
 
       guestList.forEach(g => {
-        const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        // 以護照或身分證優先作為歸戶 Key，若都無則使用專屬訂單 ID，確保每個人都能獨立入庫
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        
+        let key = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+
         if (!profileMap[key]) {
           profileMap[key] = {
             closedHistoryPoints: 0,
@@ -156,9 +142,12 @@
         const p = profileMap[key];
         p.totalPoints = p.closedHistoryPoints + p.activeTripPoints;
 
-        p.allVisits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
-        p.upcomingVisits.sort((a, b) => new Date(a.arrival).getTime() - new Date(b.arrival).getTime());
-        p.historyVisits.sort((a, b) => (b.createdAt || new Date(b.arrival).getTime()) - (a.createdAt || new Date(a.arrival).getTime()));
+        // 依最新建立時間與抵達時間排序
+        p.allVisits.sort((a, b) => (b.createdAt || new Date(b.arrival || 0).getTime()) - (a.createdAt || new Date(a.arrival || 0).getTime()));
+        p.mainGuest = p.allVisits[0] || p.mainGuest; // 永遠以最新一次登記的資料作為主要代表
+        
+        p.upcomingVisits.sort((a, b) => new Date(a.arrival || 0).getTime() - new Date(b.arrival || 0).getTime());
+        p.historyVisits.sort((a, b) => (b.createdAt || new Date(b.arrival || 0).getTime()) - (a.createdAt || new Date(a.arrival || 0).getTime()));
 
         if (p.allVisits.length <= 1) {
           p.clientType = 'other';
@@ -166,13 +155,15 @@
         } else {
           let totalGapDays = 0;
           for (let i = 1; i < p.allVisits.length; i++) {
-            const prev = new Date(p.allVisits[i - 1].arrival).getTime();
-            const curr = new Date(p.allVisits[i].arrival).getTime();
-            totalGapDays += Math.abs((curr - prev) / (1000 * 60 * 60 * 24));
+            const prev = new Date(p.allVisits[i - 1].arrival || 0).getTime();
+            const curr = new Date(p.allVisits[i].arrival || 0).getTime();
+            if (prev > 0 && curr > 0) {
+              totalGapDays += Math.abs((curr - prev) / (1000 * 60 * 60 * 24));
+            }
           }
           const avgGap = totalGapDays / (p.allVisits.length - 1);
 
-          if (avgGap <= 35) {
+          if (avgGap > 0 && avgGap <= 35) {
             p.clientType = 'long';
             p.clientTypeLabel = '長期客戶';
           } else {
@@ -329,7 +320,12 @@
 
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
         const depDateStr = g.departure ? g.departure.split('T')[0] : '';
-        const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        const key = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+
         const cType = profileMap[key]?.clientType || 'other';
 
         if (rosterFilter === 'todayArr' && arrDateStr !== todayDateStr) return false;
@@ -387,7 +383,7 @@
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表（已加入護照照片按鈕）
+    // 6. 渲染即時營運行程總表
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -410,7 +406,11 @@
         if (g.status === 'checked_in') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60 whitespace-nowrap">已入住</span>`;
         if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60 whitespace-nowrap">已取消</span>`;
 
-        const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [] };
         
         let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-medium whitespace-nowrap">新客</span>`;
@@ -431,10 +431,9 @@
         const formattedArrivalFlight = formatFlightWithAirline(g.airline);
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
-        // 護照原圖按鈕
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2 py-1 bg-red-950/70 hover:bg-red-900 border border-red-800/80 text-red-300 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition shadow-sm">📷 護照圖</button>`
-          : `<span class="text-[10px] text-neutral-600">無護照圖</span>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2 py-0.5 bg-red-950/80 hover:bg-red-900 border border-red-800/80 text-red-300 rounded text-[11px] font-semibold transition">📷 護照圖</button>`
+          : ``;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
@@ -558,7 +557,11 @@
           badge = `<span class="bg-neutral-800 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">已逾期 / 今日退房</span>`;
         }
 
-        const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other' };
 
         const departureText = g.isDepartureUncertain 
@@ -609,6 +612,7 @@
       }).join("");
     }
 
+    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（所有新進與歷史客人 100% 完整呈現）
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
@@ -664,16 +668,19 @@
         if (sortBy === 'visits_desc') return b.allVisits.length - a.allVisits.length;
         if (sortBy === 'visits_asc') return a.allVisits.length - b.allVisits.length;
         if (sortBy === 'date_desc') {
-          const tsA = a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0;
-          const tsB = b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0;
+          const tsA = a.allVisits[0]?.createdAt || (a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0);
+          const tsB = b.allVisits[0]?.createdAt || (b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0);
           return tsB - tsA;
         }
         if (sortBy === 'date_asc') {
-          const tsA = a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0;
-          const tsB = b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0;
+          const tsA = a.allVisits[0]?.createdAt || (a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0);
+          const tsB = b.allVisits[0]?.createdAt || (b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0);
           return tsA - tsB;
         }
-        return b.totalPoints - a.totalPoints;
+        // 預設以最新建立優先
+        const tsA = a.allVisits[0]?.createdAt || (a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0);
+        const tsB = b.allVisits[0]?.createdAt || (b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0);
+        return tsB - tsA;
       });
 
       document.getElementById("crmTotalCount").innerText = list.length;
@@ -697,7 +704,7 @@
         }
 
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-red-950/70 hover:bg-red-900 border border-red-800/80 text-red-300 rounded-lg text-xs font-semibold transition">📷 檢視護照</button>`
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2 py-0.5 bg-red-950/80 hover:bg-red-900 border border-red-800/80 text-red-300 rounded text-xs font-semibold transition">📷 護照圖</button>`
           : ``;
 
         return `
@@ -765,7 +772,11 @@
       ];
 
       const rows = list.map(g => {
-        const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+
         const p = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客' };
 
         return [
@@ -853,7 +864,12 @@
       const guestList = Object.entries(allGuests).map(([i, d]) => ({ id: i, ...d }));
       const nowTs = Date.now();
       const profileMap = buildClientProfileMap(guestList, nowTs);
-      const pKey = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
+
+      const passKey = (g.passport || '').trim().toUpperCase();
+      const idKey = (g.nationalId || '').trim().toUpperCase();
+      const nameKey = (g.name || '').trim();
+      const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+
       const profile = profileMap[pKey] || { totalPoints: 0, closedHistoryPoints: 0, clientTypeLabel: '新客', allVisits: [], upcomingVisits: [], historyVisits: [] };
 
       drawerBaseHistoryPoints = profile.closedHistoryPoints;
@@ -878,7 +894,6 @@
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editNote").value = g.note || '';
 
-      // Drawer 內的護照圖按鈕
       const drawerPhotoBtn = document.getElementById("drawerPassportPhotoBtn");
       if (g.passportImage) {
         drawerPhotoBtn.classList.remove("hidden");
@@ -1364,7 +1379,7 @@
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
-    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖 -->
+    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖（Excel 級多維複合篩選器） -->
     <div id="crmView" class="hidden space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
         
@@ -1410,11 +1425,11 @@
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">數據排序方式</label>
             <select id="crmSortBy" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-amber-400 font-medium outline-none focus:border-red-500 transition">
+              <option value="date_desc">最新登記/來訪 (新至舊)</option>
               <option value="points_desc">累積總積分 (高至低)</option>
               <option value="points_asc">累積總積分 (低至高)</option>
               <option value="visits_desc">歷史來訪次數 (多至少)</option>
               <option value="visits_asc">歷史來訪次數 (少至多)</option>
-              <option value="date_desc">最新來訪時間 (新至舊)</option>
               <option value="date_asc">最新來訪時間 (舊至新)</option>
             </select>
           </div>
