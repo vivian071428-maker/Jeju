@@ -387,6 +387,7 @@
       return filtered;
     }
 
+    // 6. 渲染即時營運行程總表（已加入護照照片按鈕）
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -430,6 +431,11 @@
         const formattedArrivalFlight = formatFlightWithAirline(g.airline);
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
+        // 護照原圖按鈕
+        const passportPhotoBtn = g.passportImage 
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2 py-1 bg-red-950/70 hover:bg-red-900 border border-red-800/80 text-red-300 rounded-lg text-[11px] font-semibold flex items-center gap-1 transition shadow-sm">📷 護照圖</button>`
+          : `<span class="text-[10px] text-neutral-600">無護照圖</span>`;
+
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
@@ -442,7 +448,10 @@
                 ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold whitespace-nowrap">#${g.memberId}</span>` : ''}
                 <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 修改</span>
               </button>
-              <div class="flex-shrink-0">${statusBadge}</div>
+              <div class="flex items-center gap-2">
+                ${passportPhotoBtn}
+                ${statusBadge}
+              </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
@@ -520,8 +529,8 @@
       activeStayGuests.sort((a, b) => {
         const aArr = a.arrival ? new Date(a.arrival).getTime() : 0;
         const bArr = b.arrival ? new Date(b.arrival).getTime() : 0;
-        const aDep = a.departure ? new Date(a.departure).getTime() : (aArr > 0 ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
-        const bDep = b.departure ? new Date(b.departure).getTime() : (bArr > 0 ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
+        const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
+        const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
         return aDep - bDep;
       });
 
@@ -600,26 +609,21 @@
       }).join("");
     }
 
-    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（Excel 級多條件與邏輯運算子篩選）
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
       const filterType = document.getElementById("crmFilterType").value;
-      const logicOp = document.getElementById("crmLogicOp").value; // 'AND' | 'OR'
+      const logicOp = document.getElementById("crmLogicOp").value;
       const metricFilter = document.getElementById("crmMetricFilter").value;
       const sortBy = document.getElementById("crmSortBy").value;
 
       let list = Object.values(profileMap);
       const nowTs = Date.now();
 
-      // 複合邏輯篩選
       list = list.filter(p => {
         const g = p.mainGuest || {};
-
-        // 條件 A: 客群分級 (長期 / 短期 / 新客)
         const matchTier = (filterType === 'all') ? true : (p.clientType === filterType);
 
-        // 條件 B: 經營培養維度快篩
         let matchMetric = true;
         if (metricFilter === 'high_points') {
           matchMetric = p.totalPoints >= 100;
@@ -634,21 +638,13 @@
           matchMetric = p.upcomingVisits.length > 0;
         }
 
-        // 判斷 且 (AND) 或是 (OR)
-        if (filterType === 'all' && metricFilter === 'all') {
-          return true;
-        }
-        if (logicOp === 'AND') {
-          return matchTier && matchMetric;
-        } else {
-          // OR 模式：若其中一項為 all 則依另一項為主，若皆有選則命中任一即顯示
-          if (filterType === 'all') return matchMetric;
-          if (metricFilter === 'all') return matchTier;
-          return matchTier || matchMetric;
-        }
+        if (filterType === 'all' && metricFilter === 'all') return true;
+        if (logicOp === 'AND') return matchTier && matchMetric;
+        if (filterType === 'all') return matchMetric;
+        if (metricFilter === 'all') return matchTier;
+        return matchTier || matchMetric;
       });
 
-      // 關鍵字搜尋
       if (searchVal) {
         list = list.filter(p => {
           const g = p.mainGuest || {};
@@ -662,7 +658,6 @@
         });
       }
 
-      // 多維排序
       list.sort((a, b) => {
         if (sortBy === 'points_desc') return b.totalPoints - a.totalPoints;
         if (sortBy === 'points_asc') return a.totalPoints - b.totalPoints;
@@ -701,6 +696,10 @@
           clientTypeTag = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-xs font-bold">短期客戶</span>`;
         }
 
+        const passportPhotoBtn = g.passportImage 
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-red-950/70 hover:bg-red-900 border border-red-800/80 text-red-300 rounded-lg text-xs font-semibold transition">📷 檢視護照</button>`
+          : ``;
+
         return `
           <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -710,9 +709,12 @@
                 ${clientTypeTag}
                 ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold">#${g.memberId}</span>` : ''}
               </div>
-              <div class="text-right">
-                <span class="text-xs text-neutral-400">累積總積分:</span>
-                <span class="text-base font-black text-amber-400 font-mono ml-1">${p.totalPoints}</span> <span class="text-[10px] text-neutral-500">點</span>
+              <div class="text-right flex items-center gap-3">
+                ${passportPhotoBtn}
+                <div>
+                  <span class="text-xs text-neutral-400">累積總積分:</span>
+                  <span class="text-base font-black text-amber-400 font-mono ml-1">${p.totalPoints}</span> <span class="text-[10px] text-neutral-500">點</span>
+                </div>
               </div>
             </div>
 
@@ -822,7 +824,24 @@
       renderDashboard();
     };
 
-    // 10. 編輯 / 歷史紀錄 Drawer 彈窗
+    // 10. 護照照片燈箱預覽
+    window.viewPassportPhoto = (id) => {
+      const g = allGuests[id];
+      if (!g || !g.passportImage) {
+        alert("此旅客登記時未上傳護照照片。");
+        return;
+      }
+      document.getElementById("passportModalImg").src = g.passportImage;
+      document.getElementById("passportModalTitle").innerText = `${g.name || '貴賓'} 的護照照片 (${g.englishName || '-'})`;
+      document.getElementById("passportPhotoModal").classList.remove("hidden");
+    };
+
+    window.closePassportPhotoModal = () => {
+      document.getElementById("passportPhotoModal").classList.add("hidden");
+      document.getElementById("passportModalImg").src = "";
+    };
+
+    // 11. 編輯 / 歷史紀錄 Drawer 彈窗
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
 
@@ -858,6 +877,14 @@
       document.getElementById("editStatus").value = g.status || 'pending';
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editNote").value = g.note || '';
+
+      // Drawer 內的護照圖按鈕
+      const drawerPhotoBtn = document.getElementById("drawerPassportPhotoBtn");
+      if (g.passportImage) {
+        drawerPhotoBtn.classList.remove("hidden");
+      } else {
+        drawerPhotoBtn.classList.add("hidden");
+      }
 
       updateDrawerPointsDisplay();
       document.getElementById("drawerVisitCount").innerText = profile.historyVisits.length;
@@ -910,6 +937,10 @@
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
 
+    window.openDrawerPassportPhoto = () => {
+      if (editingGuestId) viewPassportPhoto(editingGuestId);
+    };
+
     window.onDrawerPointsInput = () => {
       const currentInputPoints = parseInt(document.getElementById("editPoints").value, 10) || 0;
       document.getElementById("drawerTotalPoints").innerText = drawerBaseHistoryPoints + currentInputPoints;
@@ -941,7 +972,6 @@
       editingGuestId = null;
     };
 
-    // 支援點擊儲存或按 Enter 鍵後跳出 confirm 彈窗確認完成修改
     window.saveGuestDetails = (fromEnterKey = false) => {
       if (!editingGuestId) return;
 
@@ -993,7 +1023,6 @@
       });
     };
 
-    // 抽屜內按 Enter 鍵快速儲存監聽
     document.getElementById("editDrawerModal").addEventListener("keydown", (e) => {
       if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") {
         e.preventDefault();
@@ -1001,7 +1030,7 @@
       }
     });
 
-    // 11. 房務操作與續訂
+    // 12. 房務操作與續訂
     window.deleteGuest = (id) => {
       if (confirm("確定要刪除這筆旅客資料嗎？（刪除後無法復原）")) {
         remove(ref(db, `guests/${id}`));
@@ -1065,7 +1094,7 @@
       });
     };
 
-    // 12. 側邊欄抽屜（Sidebar）開關（支援電腦版收合展開 與 手機版遮罩抽屜）
+    // 13. 側邊欄抽屜（Sidebar）開關
     let isDesktopSidebarOpen = true;
 
     window.toggleSidebar = () => {
@@ -1074,7 +1103,6 @@
       const mainContent = document.getElementById("mainContentArea");
 
       if (window.innerWidth >= 1024) {
-        // 電腦版 (Desktop) 收合/展開
         isDesktopSidebarOpen = !isDesktopSidebarOpen;
         if (isDesktopSidebarOpen) {
           sidebar.classList.remove("-translate-x-full");
@@ -1084,7 +1112,6 @@
           mainContent.classList.remove("lg:ml-64");
         }
       } else {
-        // 手機/平板端 (Mobile) 抽屜開關
         if (sidebar.classList.contains("-translate-x-full")) {
           sidebar.classList.remove("-translate-x-full");
           overlay.classList.remove("hidden");
@@ -1138,7 +1165,7 @@
       }
     };
 
-    // 13. 篩選與搜尋事件
+    // 14. 篩選與搜尋事件
     const unifiedSelect = document.getElementById("unifiedFilterSelect");
     const referrerInputContainer = document.getElementById("referrerInputContainer");
     const referrerInput = document.getElementById("filterReferrerInput");
@@ -1157,7 +1184,6 @@
     document.getElementById("searchInput").addEventListener("input", renderDashboard);
     referrerInput.addEventListener("input", renderDashboard);
 
-    // CRM 多維篩選器聯動
     document.getElementById("crmSearchInput").addEventListener("input", renderDashboard);
     document.getElementById("crmFilterType").addEventListener("change", renderDashboard);
     document.getElementById("crmLogicOp").addEventListener("change", renderDashboard);
@@ -1197,7 +1223,7 @@
   <!-- 側邊欄抽屜遮罩（手機端點選背景收合） -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
-  <!-- 側邊抽屜導航欄 (Sidebar Drawer - 支援電腦收合與手機彈出) -->
+  <!-- 側邊抽屜導航欄 (Sidebar Drawer) -->
   <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
       
@@ -1239,13 +1265,12 @@
     </div>
   </aside>
 
-  <!-- 主內容區塊 (動態響應側邊欄寬度) -->
+  <!-- 主內容區塊 -->
   <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300">
     
-    <!-- 頂部 Header（漢堡按鈕支援電腦收合與展開） -->
+    <!-- 頂部 Header -->
     <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
       <div class="flex items-center gap-3">
-        <!-- 漢堡選單按鈕 (三條橫槓) -->
         <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
           <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
           <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
@@ -1339,11 +1364,10 @@
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
-    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖（Excel 級多維複合篩選器） -->
+    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖 -->
     <div id="crmView" class="hidden space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
         
-        <!-- 頂部搜尋與數量 -->
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between border-b border-neutral-800 pb-3">
           <div class="flex items-center gap-2">
             <h3 class="text-xs font-bold text-white">所有貴賓客戶名冊</h3>
@@ -1352,10 +1376,7 @@
           <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
         </div>
 
-        <!-- Excel 級多條件與邏輯運算子篩選列 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-center text-xs">
-          
-          <!-- 條件 1: 客群分級 -->
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">客群分類</label>
             <select id="crmFilterType" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
@@ -1366,7 +1387,6 @@
             </select>
           </div>
 
-          <!-- 邏輯運算子 (AND / OR) -->
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">條件邏輯 (AND / OR)</label>
             <select id="crmLogicOp" class="w-full px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-red-400 font-bold outline-none focus:border-red-500 transition">
@@ -1375,7 +1395,6 @@
             </select>
           </div>
 
-          <!-- 條件 2: 經營培養維度快篩 -->
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">經營培養維度快篩</label>
             <select id="crmMetricFilter" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
@@ -1388,7 +1407,6 @@
             </select>
           </div>
 
-          <!-- 排序方式 (積分 / 來訪次數 / 來訪時間) -->
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">數據排序方式</label>
             <select id="crmSortBy" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-amber-400 font-medium outline-none focus:border-red-500 transition">
@@ -1400,7 +1418,6 @@
               <option value="date_asc">最新來訪時間 (舊至新)</option>
             </select>
           </div>
-
         </div>
 
       </div>
@@ -1409,6 +1426,26 @@
     </div>
 
   </main>
+
+  <!-- 護照照片燈箱彈窗 (Lightbox Modal) -->
+  <div id="passportPhotoModal" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+        <h3 id="passportModalTitle" class="text-sm font-bold text-white flex items-center gap-1.5">
+          <span>📷 貴賓護照原圖</span>
+        </h3>
+        <button onclick="closePassportPhotoModal()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
+      </div>
+      <div class="flex items-center justify-center bg-neutral-950 rounded-xl p-2 max-h-[75vh] overflow-auto">
+        <img id="passportModalImg" src="" alt="護照照片" class="max-h-[70vh] w-auto object-contain rounded-lg shadow-md" />
+      </div>
+      <div class="flex justify-end pt-1">
+        <button onclick="closePassportPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl transition">
+          關閉預覽
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- 點擊姓名彈出：工作人員全面修改 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
@@ -1430,13 +1467,17 @@
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
       </div>
 
-      <div>
-        <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
+      <div class="flex items-center gap-2">
+        <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="flex-1 py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
           展開客戶所有行程明細
         </button>
-        <div id="historyDrawerSection" class="hidden mt-2 space-y-2 max-h-48 overflow-y-auto p-1">
-          <div id="historyListContainer" class="space-y-2"></div>
-        </div>
+        <button id="drawerPassportPhotoBtn" onclick="openDrawerPassportPhoto()" class="hidden px-3 py-2 bg-red-950/70 hover:bg-red-900 border border-red-800 text-red-300 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-sm">
+          📷 查看護照原圖
+        </button>
+      </div>
+
+      <div id="historyDrawerSection" class="hidden mt-2 space-y-2 max-h-48 overflow-y-auto p-1">
+        <div id="historyListContainer" class="space-y-2"></div>
       </div>
 
       <div class="space-y-3 text-xs">
