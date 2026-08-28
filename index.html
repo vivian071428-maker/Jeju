@@ -3,9 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>濟州島行程資料登記</title>
+  <title>濟州島貴賓行程與住宿登記</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -27,485 +26,213 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    const form = document.getElementById("guestForm");
-    const formContainer = document.getElementById("formContainer");
-    const successContainer = document.getElementById("successContainer");
-    const submitBtn = document.getElementById("submitBtn");
-    
-    const nameInput = document.getElementById("name");
-    const englishNameInput = document.getElementById("englishName");
-    const passportInput = document.getElementById("passport");
-    const nationalIdInput = document.getElementById("nationalId");
-    const birthdayInput = document.getElementById("birthday");
-    const genderSelect = document.getElementById("gender");
-    const passportError = document.getElementById("passportError");
-    
-    const referrerInput = document.getElementById("referrer");
-    const lineNicknameInput = document.getElementById("lineNickname");
-    const airlineInput = document.getElementById("airline");
-    const arrivalInput = document.getElementById("arrival");
-    const departureInput = document.getElementById("departure");
-    const departureBlock = document.getElementById("departureBlock");
-    const departureUncertain = document.getElementById("departureUncertain");
-    const arrivalError = document.getElementById("arrivalError");
-    const departureError = document.getElementById("departureError");
-    const passportFileInput = document.getElementById("passportFile");
-    const ocrStatus = document.getElementById("ocrStatus");
+    // 勾選「尚未確定離開時間」連動隱藏回程時間與班機
+    window.toggleDepartureUncertain = () => {
+      const checkbox = document.getElementById("departureUncertainCheckbox");
+      const departureContainer = document.getElementById("departureDateTimeContainer");
+      const returnFlightContainer = document.getElementById("returnFlightContainer");
+      const departureInput = document.getElementById("departureInput");
+      const returnFlightInput = document.getElementById("returnFlightInput");
 
-    // 1. 初始化 MRZ Worker
-    let worker = null;
-    async function initWorker() {
-      if (!worker) {
-        worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({
-          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ<',
-          tessedit_pageseg_mode: '6'
-        });
+      if (checkbox.checked) {
+        departureContainer.classList.add("opacity-40", "pointer-events-none");
+        returnFlightContainer.classList.add("opacity-40", "pointer-events-none");
+        departureInput.required = false;
+        departureInput.value = "";
+        returnFlightInput.value = "";
+      } else {
+        departureContainer.classList.remove("opacity-40", "pointer-events-none");
+        returnFlightContainer.classList.remove("opacity-40", "pointer-events-none");
+        departureInput.required = true;
       }
-      return worker;
-    }
-    initWorker();
+    };
 
-    function preprocessPassportMRZ(file) {
-      return new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            
-            const startY = img.height * 0.72;
-            const cropH = img.height * 0.28;
-            
-            canvas.width = img.width;
-            canvas.height = cropH;
+    window.handleSubmit = (e) => {
+      e.preventDefault();
+      const submitBtn = document.getElementById("submitBtn");
+      submitBtn.disabled = true;
+      submitBtn.innerText = "正在安全提交登記資料...";
 
-            ctx.drawImage(img, 0, startY, img.width, cropH, 0, 0, img.width, cropH);
+      const isUncertain = document.getElementById("departureUncertainCheckbox").checked;
 
-            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            const data = imgData.data;
-
-            for (let i = 0; i < data.length; i += 4) {
-              const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-              const binary = gray < 135 ? 0 : 255;
-              data[i] = binary;
-              data[i + 1] = binary;
-              data[i + 2] = binary;
-            }
-            ctx.putImageData(imgData, 0, 0);
-            resolve(canvas.toDataURL('image/png'));
-          };
-          img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
-      });
-    }
-
-    function parseMRZText(raw) {
-      const lines = raw.split('\n')
-        .map(l => l.replace(/[^A-Z0-9<]/g, '').trim())
-        .filter(l => l.length >= 20);
-
-      let line1 = '';
-      let line2 = '';
-
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('P<') || lines[i].includes('TWN')) {
-          line1 = lines[i];
-          line2 = lines[i + 1] || '';
-          break;
-        }
-      }
-
-      if (!line1 && lines.length >= 2) {
-        line1 = lines[lines.length - 2];
-        line2 = lines[lines.length - 1];
-      }
-
-      let parsed = {
-        englishName: '',
-        passportNumber: '',
-        birthday: '',
-        gender: '',
-        nationalId: ''
+      const guestData = {
+        name: document.getElementById("name").value.trim(),
+        englishName: document.getElementById("englishName").value.trim().toUpperCase(),
+        referrer: document.getElementById("referrer").value.trim(),
+        gender: document.getElementById("gender").value,
+        birthday: document.getElementById("birthday").value,
+        passport: document.getElementById("passport").value.trim().toUpperCase(),
+        nationalId: document.getElementById("nationalId").value.trim().toUpperCase(),
+        lineNickname: document.getElementById("lineNickname").value.trim(),
+        airline: document.getElementById("airline").value.trim().toUpperCase(),
+        arrival: document.getElementById("arrival").value,
+        returnAirline: isUncertain ? "" : document.getElementById("returnFlightInput").value.trim().toUpperCase(),
+        departure: isUncertain ? "" : document.getElementById("departureInput").value,
+        isDepartureUncertain: isUncertain,
+        stayDays: isUncertain ? 1 : (parseInt(document.getElementById("stayDays").value, 10) || 1),
+        note: document.getElementById("note").value.trim(),
+        status: "pending",
+        createdAt: Date.now()
       };
 
-      if (line1) {
-        let nameIdx = line1.indexOf('TWN') !== -1 ? line1.indexOf('TWN') + 3 : line1.indexOf('P<') + 5;
-        let nameChunk = line1.substring(nameIdx);
-        let parts = nameChunk.split('<<');
-        if (parts.length >= 2) {
-          let surname = parts[0].replace(/</g, '').trim();
-          let given = parts[1].replace(/<+/g, '-').replace(/-+$/, '').trim();
-          if (surname) parsed.englishName = `${surname}, ${given}`;
-        }
-      }
-
-      if (line2) {
-        let pChunk = line2.substring(0, 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
-        let pMatch = pChunk.match(/[0-9]{8,9}/);
-        if (pMatch) parsed.passportNumber = pMatch[0];
-
-        let twnPos = line2.indexOf('TWN');
-        if (twnPos !== -1 && line2.length >= twnPos + 9) {
-          let dob = line2.substring(twnPos + 3, twnPos + 9).replace(/[OBISZ]/g, m => ({O:'0',B:'8',I:'1',S:'5',Z:'2'})[m] || m);
-          if (/^[0-9]{6}$/.test(dob)) {
-            let yy = parseInt(dob.substring(0, 2), 10);
-            let mm = dob.substring(2, 4);
-            let dd = dob.substring(4, 6);
-            let fullYear = yy > 26 ? `19${dob.substring(0, 2)}` : `20${dob.substring(0, 2)}`;
-            parsed.birthday = `${fullYear}-${mm}-${dd}`;
-          }
-
-          let s = line2.charAt(twnPos + 10);
-          if (s === 'F' || s === 'M') parsed.gender = s;
-        }
-
-        let idSection = line2.substring(15);
-        let idMatch = idSection.match(/([A-Z][12][0-9]{8})/);
-        if (idMatch) {
-          parsed.nationalId = idMatch[1];
-          if (!parsed.gender) parsed.gender = parsed.nationalId.charAt(1) === '1' ? 'M' : 'F';
-        }
-      }
-
-      return parsed;
-    }
-
-    passportFileInput.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      ocrStatus.classList.remove("hidden");
-      ocrStatus.className = "text-xs text-red-400 font-medium mt-2 flex items-center gap-1.5";
-      ocrStatus.innerHTML = `
-        <svg class="animate-spin h-3.5 w-3.5 text-red-500" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-        </svg>
-        護照機讀碼辨識中...
-      `;
-
-      try {
-        const processedImg = await preprocessPassportMRZ(file);
-        const w = await initWorker();
-        const { data: { text } } = await w.recognize(processedImg);
-        const res = parseMRZText(text);
-
-        let detected = [];
-
-        if (res.englishName) {
-          englishNameInput.value = res.englishName;
-          detected.push("英文姓名");
-        }
-        if (res.passportNumber) {
-          passportInput.value = res.passportNumber;
-          validatePassport(res.passportNumber);
-          detected.push("護照號碼");
-        }
-        if (res.nationalId) {
-          nationalIdInput.value = res.nationalId;
-          detected.push("身分證字號");
-        }
-        if (res.birthday) {
-          birthdayInput.value = res.birthday;
-          detected.push("出生年月日");
-        }
-        if (res.gender) {
-          genderSelect.value = res.gender;
-          detected.push("性別");
-        }
-
-        if (detected.length > 0) {
-          ocrStatus.className = "text-xs text-emerald-400 font-medium mt-2";
-          ocrStatus.innerHTML = `✓ 已成功帶入：${detected.join("、")}。請手動輸入中文姓名並核對內容。`;
-        } else {
-          ocrStatus.className = "text-xs text-amber-400 font-medium mt-2";
-          ocrStatus.innerHTML = "未能精準識別機讀碼，請直接手動填寫。";
-        }
-      } catch (err) {
-        console.error(err);
-        ocrStatus.className = "text-xs text-red-400 font-medium mt-2";
-        ocrStatus.innerHTML = "辨識失敗，請直接手動輸入。";
-      }
-    });
-
-    // 2. 勾選「尚未確定離開時間」切換
-    departureUncertain.addEventListener("change", (e) => {
-      if (e.target.checked) {
-        departureInput.value = "";
-        departureInput.disabled = true;
-        departureInput.required = false;
-        departureBlock.classList.add("opacity-40", "pointer-events-none");
-        departureError.classList.add("hidden");
-      } else {
-        departureInput.disabled = false;
-        departureInput.required = true;
-        departureBlock.classList.remove("opacity-40", "pointer-events-none");
-      }
-    });
-
-    function validatePassport(val) {
-      const valid = /^[A-Z0-9]{6,9}$/.test(val);
-      if (!valid) {
-        passportError.textContent = "護照號碼應為 6 至 9 碼英數";
-        passportError.classList.remove("hidden");
-      } else {
-        passportError.classList.add("hidden");
-      }
-      return valid;
-    }
-
-    passportInput.addEventListener("input", (e) => {
-      let val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      if (val.length > 9) val = val.slice(0, 9);
-      e.target.value = val;
-      validatePassport(val);
-    });
-
-    englishNameInput.addEventListener("input", (e) => {
-      e.target.value = e.target.value.toUpperCase();
-    });
-
-    nationalIdInput.addEventListener("input", (e) => {
-      let val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      if (val.length > 10) val = val.slice(0, 10);
-      e.target.value = val;
-    });
-
-    airlineInput.addEventListener("input", (e) => {
-      e.target.value = e.target.value.toUpperCase();
-    });
-
-    // 3. 送出表單資料
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      const passportVal = passportInput.value.trim();
-      if (!validatePassport(passportVal)) return passportInput.focus();
-
-      let isUncertain = departureUncertain.checked;
-      let depValue = isUncertain ? "" : departureInput.value;
-      let stayDaysCount = 1;
-
-      if (!isUncertain && depValue && arrivalInput.value) {
-        const arrDate = new Date(arrivalInput.value);
-        const depDate = new Date(depValue);
-        if (depDate <= arrDate) {
-          departureError.textContent = "離開時間必須晚於抵達時間！";
-          departureError.classList.remove("hidden");
-          return departureInput.focus();
-        }
-        stayDaysCount = Math.ceil(Math.abs(depDate - arrDate) / (1000 * 60 * 60 * 24)) || 1;
-      }
-
-      submitBtn.innerText = "資料送出中...";
-      submitBtn.disabled = true;
-
-      try {
-        await push(ref(db, "guests"), {
-          name: nameInput.value.trim(),
-          englishName: englishNameInput.value.trim(),
-          passport: passportVal,
-          nationalId: nationalIdInput.value.trim(),
-          birthday: birthdayInput.value,
-          gender: genderSelect.value,
-          referrer: referrerInput.value.trim(), // 推薦人 (選填)
-          lineNickname: lineNicknameInput.value.trim(),
-          airline: airlineInput.value.trim(),
-          arrival: arrivalInput.value,
-          departure: depValue,
-          isDepartureUncertain: isUncertain,
-          stayDays: stayDaysCount,
-          points: 0,
-          staff: "",
-          roomExtendedCount: 0,
-          status: "pending",
-          housekeepingStatus: "normal",
-          createdAt: Date.now()
+      push(ref(db, "guests"), guestData)
+        .then(() => {
+          document.getElementById("formContainer").classList.add("hidden");
+          document.getElementById("successModal").classList.remove("hidden");
+        })
+        .catch((error) => {
+          alert("登記提交失敗，請檢查網路連線或稍後再試: " + error.message);
+          submitBtn.disabled = false;
+          submitBtn.innerText = "確認並送出行程登記";
         });
-
-        formContainer.classList.add("hidden");
-        successContainer.classList.remove("hidden");
-      } catch (err) {
-        alert("送出失敗：" + err.message);
-      } finally {
-        submitBtn.innerText = "確認送出資料";
-        submitBtn.disabled = false;
-      }
-    });
-
-    window.resetAndReturn = (clearFields) => {
-      if (clearFields) {
-        form.reset();
-        ocrStatus.classList.add("hidden");
-        passportError.classList.add("hidden");
-        arrivalError.classList.add("hidden");
-        departureError.classList.add("hidden");
-        departureInput.disabled = false;
-        departureInput.required = true;
-        departureBlock.classList.remove("opacity-40", "pointer-events-none");
-      }
-      successContainer.classList.add("hidden");
-      formContainer.classList.remove("hidden");
     };
   </script>
   <style>
-    input[type="datetime-local"],
-    input[type="date"] {
+    input[type="date"],
+    input[type="datetime-local"] {
       -webkit-appearance: none;
       min-height: 44px;
-      font-size: 14px;
+      font-size: 14px !important;
       line-height: normal;
     }
-    input[type="datetime-local"]::-webkit-calendar-picker-indicator,
-    input[type="date"]::-webkit-calendar-picker-indicator {
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
       filter: invert(1);
       cursor: pointer;
     }
   </style>
 </head>
 
-<body class="bg-neutral-950 text-neutral-100 min-h-screen flex items-center justify-center p-3 md:p-6 selection:bg-red-600 selection:text-white pb-12">
-  <div class="bg-neutral-900 max-w-lg w-full rounded-2xl shadow-2xl border border-neutral-800 p-5 md:p-7 relative overflow-hidden">
-    
-    <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-red-600"></div>
+<body class="bg-neutral-950 text-neutral-100 min-h-screen p-4 sm:p-8 flex items-center justify-center selection:bg-red-600 selection:text-white">
 
-    <div id="formContainer" class="space-y-4">
-      <div class="border-b border-neutral-800 pb-3">
+  <div class="max-w-xl w-full">
+    
+    <div id="successModal" class="hidden bg-neutral-900 border border-neutral-800 rounded-3xl p-8 text-center space-y-4 shadow-2xl">
+      <div class="w-16 h-16 bg-red-950 border border-red-800 text-red-400 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">✓</div>
+      <h2 class="text-2xl font-black text-white">行程登記已完成！</h2>
+      <p class="text-neutral-400 text-xs sm:text-sm leading-relaxed">
+        感謝您填寫濟州島行程與住宿需求。接待專員已收到您的資訊，將竭誠為您準備最完善的接送與住宿安排！
+      </p>
+      <button onclick="location.reload()" class="mt-4 px-6 py-2.5 bg-neutral-800 hover:bg-neutral-750 text-white rounded-xl text-xs font-semibold transition">
+        填寫下一筆
+      </button>
+    </div>
+
+    <div id="formContainer" class="bg-neutral-900 border border-neutral-800/90 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6">
+      
+      <div class="border-b border-neutral-800 pb-4">
         <div class="flex items-center gap-2">
-          <span class="inline-block w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
-          <h1 class="text-xl sm:text-2xl font-black tracking-tight text-white">濟州島行程資料登記</h1>
+          <span class="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
+          <span class="text-xs uppercase tracking-widest text-red-500 font-bold">Jeju Island VIP Registration</span>
         </div>
-        <p class="text-[11px] text-neutral-400 mt-1">請填寫真實航班與護照資料，以利接待團隊安排接送與房務服務。</p>
+        <h1 class="text-2xl sm:text-3xl font-black text-white mt-1">濟州島行程與住宿登記</h1>
+        <p class="text-xs text-neutral-400 mt-1">請填寫您的基本資料與航班起降時間，以利專員為您安排專車與房務安排。</p>
       </div>
 
-      <form id="guestForm" class="space-y-3.5">
+      <form onsubmit="handleSubmit(event)" class="space-y-4 text-xs">
         
-        <!-- 護照拍照 OCR 快速辨識區 -->
-        <div class="bg-gradient-to-br from-neutral-900 to-red-950/40 border border-red-900/50 rounded-xl p-3.5 space-y-2 shadow-inner">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-bold text-red-400 flex items-center gap-1.5 tracking-wide">
-              📷 護照一鍵自動填入
-            </span>
-            <label for="passportFile" class="text-xs bg-red-600 hover:bg-red-700 active:scale-95 text-white px-3 py-1.5 rounded-lg cursor-pointer font-semibold transition shadow-md shadow-red-950">
-              拍照 / 上傳護照
-            </label>
-            <input id="passportFile" type="file" accept="image/*" class="hidden" />
-          </div>
-          <p class="text-[10px] text-neutral-400 leading-relaxed">拍照上傳後將自動辨識英文姓名、護照號碼、身分證、生日與性別；亦可直接於下方手動輸入。</p>
-          <div id="ocrStatus" class="hidden text-xs pt-0.5"></div>
-        </div>
-
-        <!-- 中文真實姓名 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">中文真實姓名 *</label>
-          <input id="name" required placeholder="請填寫中文真實姓名（例：林美華）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 placeholder:text-neutral-600 transition" />
-        </div>
-
-        <!-- 護照英文姓名 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">護照英文姓名 *</label>
-          <input id="englishName" required placeholder="例：LIN, MEI-HUA" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
-          <p class="text-[10px] text-neutral-500 mt-0.5">※ 請依照護照格式填寫（SURNAME, GIVEN NAME）。</p>
-        </div>
-
-        <!-- 護照號碼 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">護照號碼 *</label>
-          <input id="passport" maxlength="9" required placeholder="請輸入 6~9 碼護照號碼（例：888800088）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono tracking-widest placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
-          <p id="passportError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
-        </div>
-
-        <!-- 身分證字號 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">身分證字號 / 證件號 *</label>
-          <input id="nationalId" maxlength="10" required placeholder="例：A234567893" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono tracking-wider placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
-        </div>
-
-        <!-- 出生年月日 & 性別 -->
-        <div class="grid grid-cols-2 gap-2.5">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-semibold text-neutral-300 mb-1">出生年月日 *</label>
-            <input id="birthday" type="date" required class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs text-neutral-100 transition" />
+            <label class="block font-semibold text-neutral-300 mb-1">中文真實姓名 <span class="text-red-500">*</span></label>
+            <input id="name" required placeholder="例如：王小明" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
           </div>
           <div>
-            <label class="block text-xs font-semibold text-neutral-300 mb-1">性別 *</label>
-            <select id="gender" required class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs text-neutral-100 transition">
-              <option value="" class="bg-neutral-900 text-neutral-400">請選擇性別</option>
-              <option value="M" class="bg-neutral-900 text-white">男 (Male)</option>
-              <option value="F" class="bg-neutral-900 text-white">女 (Female)</option>
+            <label class="block font-semibold text-neutral-300 mb-1">護照英文姓名 <span class="text-red-500">*</span></label>
+            <input id="englishName" required placeholder="例如：WANG XIAOMING" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 transition" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">介紹人 / 推薦人姓名</label>
+            <input id="referrer" placeholder="若無可填寫 無" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
+          </div>
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">性別 <span class="text-red-500">*</span></label>
+            <select id="gender" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
+              <option value="M">男 (Male)</option>
+              <option value="F">女 (Female)</option>
             </select>
           </div>
         </div>
 
-        <!-- 推薦人 (選填) -->
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label class="block text-xs font-semibold text-neutral-300">推薦人姓名 / 介紹人</label>
-            <span class="text-[10px] text-neutral-500">（選填）</span>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">出生年月日 <span class="text-red-500">*</span></label>
+            <input id="birthday" type="date" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
           </div>
-          <input id="referrer" placeholder="若有介紹人或推薦好友請填寫姓名" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 text-neutral-100 transition" />
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">身分證字號 <span class="text-red-500">*</span></label>
+            <input id="nationalId" required placeholder="例如：A123456789" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 transition" />
+          </div>
         </div>
 
-        <!-- LINE 社群暱稱 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">LINE 社群中的暱稱 *</label>
-          <input id="lineNickname" required placeholder="請輸入您在濟州島交流群內顯示的暱稱" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 text-neutral-100 transition" />
-          <p class="text-[10px] text-neutral-500 mt-0.5">※ 方便接待專員於群組內即時聯繫確認接送細節。</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">護照號碼 <span class="text-red-500">*</span></label>
+            <input id="passport" required placeholder="例如：312345678" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 transition" />
+          </div>
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">LINE 暱稱 / 聯絡方式 <span class="text-red-500">*</span></label>
+            <input id="lineNickname" required placeholder="方便接機群組辨識" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
+          </div>
         </div>
 
-        <!-- 抵達航班代碼 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">抵達航班代碼 *</label>
-          <input id="airline" required placeholder="例：KE123、TW701、7C2686" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase tracking-wide text-neutral-100 transition" />
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-neutral-800/60">
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">抵達航班代碼 <span class="text-red-500">*</span></label>
+            <input id="airline" required placeholder="例如：IT654 / TW668" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 transition" />
+          </div>
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">預計抵達濟州時間 (抵達降落) <span class="text-red-500">*</span></label>
+            <input id="arrival" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
+          </div>
         </div>
 
-        <!-- 預計抵達濟州島時間 -->
-        <div>
-          <label class="block text-xs font-semibold text-neutral-300 mb-1">預計抵達濟州島時間 *</label>
-          <input id="arrival" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 transition" />
-          <p id="arrivalError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
-        </div>
-
-        <!-- 預計離開濟州島時間 + 尚未確定勾選框 -->
-        <div class="space-y-1.5">
+        <div class="pt-2 space-y-3">
           <div class="flex items-center justify-between">
-            <label class="block text-xs font-semibold text-neutral-300">預計離開濟州島時間</label>
-            <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs text-red-400 font-medium hover:text-red-300">
-              <input id="departureUncertain" type="checkbox" class="w-3.5 h-3.5 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 focus:ring-offset-0 cursor-pointer accent-red-600" />
-              <span>尚未確定離開時間</span>
+            <label class="font-semibold text-neutral-300">回程離境資訊</label>
+            <label class="flex items-center gap-1.5 cursor-pointer select-none text-xs text-amber-400 hover:text-amber-300">
+              <input id="departureUncertainCheckbox" type="checkbox" onchange="toggleDepartureUncertain()" class="w-4 h-4 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
+              <span>尚未確定離開時間（免填回程班機與時間）</span>
             </label>
           </div>
-          <div id="departureBlock">
-            <input id="departure" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 transition" />
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div id="returnFlightContainer">
+              <label class="block font-semibold text-neutral-300 mb-1">回程班機號碼</label>
+              <input id="returnFlightInput" placeholder="例如：IT655 / 7C2686 (若有訂請填)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 transition" />
+            </div>
+
+            <div id="departureDateTimeContainer">
+              <label class="block font-semibold text-neutral-300 mb-1">預計離開濟州時間 <span class="text-neutral-400 font-normal">(請填入回程班機起飛時間)</span></label>
+              <input id="departureInput" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
+            </div>
           </div>
-          <p id="departureError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
         </div>
 
-        <button id="submitBtn" type="submit" class="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-red-950/60 mt-3">
-          確認送出資料
-        </button>
-      </form>
-    </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block font-semibold text-neutral-300 mb-1">預計停留晚數</label>
+            <input id="stayDays" type="number" min="1" max="60" value="3" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block font-semibold text-neutral-300 mb-1">特殊需求或備註說明</label>
+            <input id="note" placeholder="例如：需要嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition" />
+          </div>
+        </div>
 
-    <!-- 送出成功畫面 -->
-    <div id="successContainer" class="hidden text-center py-8 space-y-5">
-      <div class="w-14 h-14 bg-red-950/80 border border-red-800/80 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl font-black shadow-lg shadow-red-950">✓</div>
-      <div>
-        <h2 class="text-lg font-bold text-white tracking-tight">行程資料已成功送出！</h2>
-        <p class="text-neutral-400 text-xs mt-1.5 leading-relaxed max-w-xs mx-auto">接待團隊已收到您的預約資訊，我們將在專屬 LINE 群中與您確認接機與房務細節。</p>
-      </div>
-      <div class="pt-2 flex flex-col gap-2">
-        <button onclick="resetAndReturn(false)" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium rounded-xl text-xs transition border border-neutral-700">
-          資料有誤？返回修改剛才送出的內容
-        </button>
-        <button onclick="resetAndReturn(true)" class="w-full py-2.5 text-red-400 hover:bg-red-950/40 font-medium rounded-xl text-xs transition border border-red-900/40">
-          同行旅客填寫（登記下一位）
-        </button>
-      </div>
+        <div class="pt-3">
+          <button id="submitBtn" type="submit" class="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-sm transition shadow-lg shadow-red-950 active:scale-[0.99]">
+            確認並送出行程登記
+          </button>
+        </div>
+
+      </form>
+
     </div>
 
   </div>
+
 </body>
 </html>
