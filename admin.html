@@ -28,12 +28,12 @@
 
     let allGuests = {};
     let activeTab = 'roster'; // 'roster' | 'housekeeping' | 'crm'
-    let rosterFilter = 'all'; // 'all' | 'todayArr' | 'inIsland' | 'todayDep'
-    let housekeepingFilter = 'all'; // 'all' | 'inIsland' | 'care48' | 'alert24'
+    let rosterFilter = 'all'; 
+    let housekeepingFilter = 'all'; 
     let unmaskedIds = new Set();
     const ADMIN_PIN = "8888";
 
-    // 1. PIN 驗證（支援點擊與按 Enter 鍵解鎖）
+    // 1. PIN 驗證（按 Enter 鍵解鎖）
     const authOverlay = document.getElementById("authOverlay");
     const adminPinInput = document.getElementById("adminPin");
     const pinError = document.getElementById("pinError");
@@ -52,9 +52,7 @@
 
     unlockBtn.addEventListener("click", handleUnlock);
     adminPinInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        handleUnlock();
-      }
+      if (e.key === "Enter") handleUnlock();
     });
 
     // 2. 監聽資料庫
@@ -72,7 +70,6 @@
       return str.substring(0, visibleChars) + '****';
     }
 
-    // 自動依據航班代碼前綴解析航空公司
     function formatFlightWithAirline(flightNo) {
       if (!flightNo) return '-';
       const clean = flightNo.trim().toUpperCase();
@@ -109,14 +106,11 @@
       };
 
       for (const [code, name] of Object.entries(airlineMap)) {
-        if (prefix.startsWith(code)) {
-          return `${clean} (${name})`;
-        }
+        if (prefix.startsWith(code)) return `${clean} (${name})`;
       }
       return clean;
     }
 
-    // 身分證格式化工具：第1碼強制大寫英文字母，後續9碼純數字
     function formatNationalId(val) {
       let clean = val.toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (!clean) return '';
@@ -125,7 +119,7 @@
       return first + rest;
     }
 
-    // 3. 客戶 CRM 聚合引擎（過往結案積分 + 進行中當前積分 = 累積總積分）
+    // 3. 客戶 CRM 聚合引擎
     function buildClientProfileMap(guestList, nowTs) {
       const profileMap = {};
 
@@ -191,7 +185,6 @@
       return profileMap;
     }
 
-    // 房務倒數運算（未定離開日者自動以抵達日起算 5 天為暫定退房日）
     function getHousekeepingAlertLevel(g, nowTs) {
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
         return 'closed';
@@ -226,9 +219,7 @@
 
     // 4. 渲染主儀表板
     function renderDashboard() {
-      const guestList = Object.entries(allGuests)
-        .map(([id, data]) => ({ id, ...data }));
-
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const now = new Date();
       const nowTs = now.getTime();
       const pad = (n) => String(n).padStart(2, '0');
@@ -236,11 +227,9 @@
       
       const profileMap = buildClientProfileMap(guestList, nowTs);
 
-      // 即時營運行程只納入：尚未完全過期離開的「活躍行程」（未來即將抵達 ＋ 當前在島中）
       let activeRosterList = guestList.filter(g => {
         if (g.status === 'completed' || g.housekeepingStatus === 'closed' || g.status === 'cancelled') return false;
         const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (5 * 24 * 60 * 60 * 1000) : 0);
-        // 若非不確定日期且起飛時間已過，自動歸檔至歷史 CRM 分頁
         if (!g.isDepartureUncertain && depTime > 0 && nowTs > depTime) return false;
         return true;
       });
@@ -264,7 +253,6 @@
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
         const depDateStr = g.departure ? g.departure.split('T')[0] : '';
 
-        // 活躍行程指標
         if (arrDateStr === todayDateStr && g.status !== 'cancelled') todayArrCount++;
         if (depDateStr === todayDateStr && !g.isDepartureUncertain && g.status !== 'cancelled') todayDepCount++;
         if (nowTs >= arrTime && (!depTime || nowTs <= depTime) && g.status !== 'cancelled' && g.housekeepingStatus !== 'closed') {
@@ -272,13 +260,11 @@
           hkInIslandCount++;
         }
 
-        // 房務警戒
         const level = getHousekeepingAlertLevel(g, nowTs);
         if (level === 'care48') care48Count++;
         if (level === 'alert24') alert24Count++;
       });
 
-      // 更新卡片數值
       document.getElementById("statTotal").innerText = activeTotalCount;
       document.getElementById("statTodayArr").innerText = todayArrCount;
       document.getElementById("statInIsland").innerText = inIslandCount;
@@ -329,7 +315,6 @@
       });
     }
 
-    // 5. 取得即時營運行程篩選名單
     function getFilteredGuests(activeList, nowTs, todayDateStr, profileMap) {
       const searchVal = document.getElementById("searchInput").value.toLowerCase().trim();
       const unifiedFilter = document.getElementById("unifiedFilterSelect").value;
@@ -393,22 +378,15 @@
         const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
         const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
 
-        if (rosterFilter === 'todayArr' || unifiedFilter === '24h_arrival') {
-          return aArr - bArr;
-        }
-        if (rosterFilter === 'todayDep') {
-          return aDep - bDep;
-        }
-        if (rosterFilter === 'inIsland') {
-          return aDep - bDep;
-        }
+        if (rosterFilter === 'todayArr' || unifiedFilter === '24h_arrival') return aArr - bArr;
+        if (rosterFilter === 'todayDep') return aDep - bDep;
+        if (rosterFilter === 'inIsland') return aDep - bDep;
         return (b.createdAt || bArr) - (a.createdAt || aArr);
       });
 
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -514,7 +492,6 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -526,7 +503,6 @@
         }
 
         const level = getHousekeepingAlertLevel(g, nowTs);
-
         if (level === 'closed') return false;
 
         if (housekeepingFilter === 'inIsland' && !(nowTs >= arrTime && (!depTime || nowTs <= depTime))) return false;
@@ -624,7 +600,6 @@
       }).join("");
     }
 
-    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（所有歷史客人依護照去重歸戶）
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
@@ -708,7 +683,7 @@
       }).join("");
     }
 
-    // 9. 一鍵匯出 CSV（UTF-8 BOM 防亂碼）
+    // 9. 一鍵匯出 CSV
     window.exportToCSV = () => {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const now = new Date();
@@ -772,7 +747,6 @@
       document.body.removeChild(link);
     };
 
-    // 10. 頂部卡片篩選切換
     window.setRosterFilter = (type) => {
       rosterFilter = (rosterFilter === type) ? 'all' : type;
       renderDashboard();
@@ -792,7 +766,7 @@
       renderDashboard();
     };
 
-    // 11. 編輯 / 歷史紀錄 Drawer 彈窗
+    // 10. 編輯 / 歷史紀錄 Drawer 彈窗
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
 
@@ -880,7 +854,6 @@
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
 
-    // 抽屜中即時動態連動累積總積分
     window.onDrawerPointsInput = () => {
       const currentInputPoints = parseInt(document.getElementById("editPoints").value, 10) || 0;
       document.getElementById("drawerTotalPoints").innerText = drawerBaseHistoryPoints + currentInputPoints;
@@ -891,7 +864,6 @@
       document.getElementById("drawerTotalPoints").innerText = drawerBaseHistoryPoints + currentInputPoints;
     }
 
-    // 抽屜內身分證即時防呆
     document.getElementById("editNationalId").addEventListener("input", (e) => {
       e.target.value = formatNationalId(e.target.value);
     });
@@ -959,7 +931,7 @@
       });
     };
 
-    // 12. 房務操作與續訂
+    // 11. 房務操作與續訂
     window.deleteGuest = (id) => {
       if (confirm("確定要刪除這筆旅客資料嗎？（刪除後無法復原）")) {
         remove(ref(db, `guests/${id}`));
@@ -1023,11 +995,30 @@
       });
     };
 
-    // 13. 三大分頁切換
+    // 12. 側邊抽屜（Sidebar）開關與分頁切換
+    window.toggleSidebar = () => {
+      const sidebar = document.getElementById("sidebarNav");
+      const overlay = document.getElementById("sidebarOverlay");
+      if (sidebar.classList.contains("-translate-x-full")) {
+        sidebar.classList.remove("-translate-x-full");
+        overlay.classList.remove("hidden");
+      } else {
+        sidebar.classList.add("-translate-x-full");
+        overlay.classList.add("hidden");
+      }
+    };
+
     window.switchTab = (tab) => {
       activeTab = tab;
       
-      // 隱藏所有分頁視圖
+      // 自動在手機端點選後收合側邊欄
+      const sidebar = document.getElementById("sidebarNav");
+      const overlay = document.getElementById("sidebarOverlay");
+      if (window.innerWidth < 1024) {
+        sidebar.classList.add("-translate-x-full");
+        overlay.classList.add("hidden");
+      }
+
       document.getElementById("rosterView").classList.add("hidden");
       document.getElementById("housekeepingView").classList.add("hidden");
       document.getElementById("crmView").classList.add("hidden");
@@ -1035,29 +1026,33 @@
       document.getElementById("rosterStatsGrid").classList.add("hidden");
       document.getElementById("housekeepingStatsGrid").classList.add("hidden");
 
-      // 重設按鈕樣式
-      const defaultBtnClass = "flex-1 sm:flex-initial px-3.5 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl transition";
-      const activeBtnClass = "flex-1 sm:flex-initial px-3.5 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md transition";
+      const defaultNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-850 flex items-center gap-3 transition";
+      const activeNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition";
 
-      document.getElementById("tabRosterBtn").className = defaultBtnClass;
-      document.getElementById("tabHousekeepingBtn").className = defaultBtnClass;
-      document.getElementById("tabCrmBtn").className = defaultBtnClass;
+      document.getElementById("navRosterBtn").className = defaultNavClass;
+      document.getElementById("navHousekeepingBtn").className = defaultNavClass;
+      document.getElementById("navCrmBtn").className = defaultNavClass;
+
+      const pageTitle = document.getElementById("currentPageTitle");
 
       if (tab === 'roster') {
         document.getElementById("rosterView").classList.remove("hidden");
         document.getElementById("rosterStatsGrid").classList.remove("hidden");
-        document.getElementById("tabRosterBtn").className = activeBtnClass;
+        document.getElementById("navRosterBtn").className = activeNavClass;
+        pageTitle.innerText = "即時營運行程";
       } else if (tab === 'housekeeping') {
         document.getElementById("housekeepingView").classList.remove("hidden");
         document.getElementById("housekeepingStatsGrid").classList.remove("hidden");
-        document.getElementById("tabHousekeepingBtn").className = activeBtnClass;
+        document.getElementById("navHousekeepingBtn").className = activeNavClass;
+        pageTitle.innerText = "房務與續訂警戒";
       } else if (tab === 'crm') {
         document.getElementById("crmView").classList.remove("hidden");
-        document.getElementById("tabCrmBtn").className = activeBtnClass;
+        document.getElementById("navCrmBtn").className = activeNavClass;
+        pageTitle.innerText = "貴賓 CRM 客戶庫";
       }
     };
 
-    // 14. 篩選與搜尋監聽事件
+    // 13. 篩選與搜尋事件
     const unifiedSelect = document.getElementById("unifiedFilterSelect");
     const referrerInputContainer = document.getElementById("referrerInputContainer");
     const referrerInput = document.getElementById("filterReferrerInput");
@@ -1095,9 +1090,9 @@
   </style>
 </head>
 
-<body class="bg-neutral-950 text-neutral-100 min-h-screen p-3 md:p-8 selection:bg-red-600 selection:text-white pb-24">
+<body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white flex overflow-x-hidden">
 
-  <!-- PIN 驗證遮罩（支援按 Enter 鍵進入） -->
+  <!-- PIN 驗證遮罩 -->
   <div id="authOverlay" class="fixed inset-0 bg-neutral-950/95 flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 text-center shadow-2xl">
       <div class="w-12 h-12 bg-red-950 border border-red-800 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl font-black">🔒</div>
@@ -1109,29 +1104,73 @@
     </div>
   </div>
 
-  <div class="max-w-6xl mx-auto space-y-5">
-    
-    <!-- 頂部導航與標題（升級 3 大分頁） -->
-    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
-      <div>
-        <h1 class="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+  <!-- 側邊欄抽屜遮罩（手機/平板端點選背景收合） -->
+  <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
+
+  <!-- 側邊抽屜導航欄 (Sidebar Drawer) -->
+  <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 -translate-x-full lg:translate-x-0 backdrop-blur-md shadow-2xl">
+    <div class="space-y-6">
+      
+      <!-- 系統 Logo 與標題 -->
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
+        <div class="flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
-          濟州島旅客與房務管理後台
-        </h1>
-        <p class="text-[11px] text-neutral-400 mt-0.5">即時同步旅客登記名單、退房倒數關懷/續訂警戒、歷史來訪與累積總積分</p>
+          <div>
+            <div class="text-xs font-black tracking-widest text-white uppercase">JEJU VIP ADMIN</div>
+            <div class="text-[10px] text-neutral-400">濟州島行程與房務管理</div>
+          </div>
+        </div>
+        <button onclick="toggleSidebar()" class="lg:hidden text-neutral-400 hover:text-white p-1 font-bold">✕</button>
       </div>
 
-      <div class="bg-neutral-900 p-1 border border-neutral-800 rounded-2xl flex gap-1 w-full sm:w-auto">
-        <button id="tabRosterBtn" onclick="switchTab('roster')" class="flex-1 sm:flex-initial px-3.5 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md transition">
-          即時營運行程
+      <!-- 導航菜單 -->
+      <nav class="space-y-1.5">
+        <button id="navRosterBtn" onclick="switchTab('roster')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          <span>即時營運行程</span>
         </button>
-        <button id="tabHousekeepingBtn" onclick="switchTab('housekeeping')" class="flex-1 sm:flex-initial px-3.5 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl transition">
-          房務與續訂警戒
+        
+        <button id="navHousekeepingBtn" onclick="switchTab('housekeeping')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>房務與續訂警戒</span>
         </button>
-        <button id="tabCrmBtn" onclick="switchTab('crm')" class="flex-1 sm:flex-initial px-3.5 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl transition">
-          貴賓 CRM 客戶庫
+
+        <button id="navCrmBtn" onclick="switchTab('crm')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+          <span>貴賓 CRM 客戶庫</span>
         </button>
+      </nav>
+    </div>
+
+    <!-- 側邊欄底部資訊 -->
+    <div class="border-t border-neutral-800 pt-4 text-[10px] text-neutral-500 space-y-1">
+      <div>系統狀態: <span class="text-emerald-400 font-medium">即時連線中</span></div>
+      <div>數據庫: <span class="text-neutral-400 font-mono">Firebase RTDB</span></div>
+    </div>
+  </aside>
+
+  <!-- 主內容區塊 (右側自適應排版) -->
+  <main class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5">
+    
+    <!-- 頂部 Header（含三條橫槓漢堡選單按鈕） -->
+    <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
+      <div class="flex items-center gap-3">
+        <!-- 漢堡選單按鈕 (三條槓) -->
+        <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="切換分頁導航選單">
+          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+        </button>
+        <div>
+          <h1 id="currentPageTitle" class="text-lg sm:text-xl font-black text-white tracking-tight">即時營運行程</h1>
+          <p class="text-[10px] sm:text-xs text-neutral-400 mt-0.5">即時掌握在島房態、專車接送與會員累積總積分</p>
+        </div>
       </div>
+
+      <button onclick="exportToCSV()" class="px-3.5 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-sm">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <span>匯出 CSV</span>
+      </button>
     </div>
 
     <!-- [分頁 1 專用卡片] 即時營運行程數據卡片 -->
@@ -1194,10 +1233,6 @@
             <div id="referrerInputContainer" class="hidden">
               <input id="filterReferrerInput" placeholder="輸入推薦人姓名..." class="px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
             </div>
-
-            <button onclick="exportToCSV()" class="px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition shadow-sm whitespace-nowrap">
-              匯出 CSV
-            </button>
           </div>
         </div>
       </div>
@@ -1214,7 +1249,7 @@
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
-    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖（完整歷史去重名冊） -->
+    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖 -->
     <div id="crmView" class="hidden space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between shadow-md">
         <div class="flex items-center gap-2">
@@ -1229,16 +1264,13 @@
             <option value="short">短期客戶</option>
             <option value="other">新客/單次</option>
           </select>
-          <button onclick="exportToCSV()" class="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold transition whitespace-nowrap">
-            匯出 CRM 清單
-          </button>
         </div>
       </div>
 
       <div id="crmContainer" class="space-y-3"></div>
     </div>
 
-  </div>
+  </main>
 
   <!-- 點擊姓名彈出：工作人員全面修改 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
@@ -1260,7 +1292,6 @@
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
       </div>
 
-      <!-- 折疊按鈕：查看歷史行程 -->
       <div>
         <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
           展開客戶所有行程明細
@@ -1271,8 +1302,6 @@
       </div>
 
       <div class="space-y-3 text-xs">
-        
-        <!-- 會員編號與推薦人 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div class="bg-neutral-950 border border-red-950 p-2.5 rounded-xl space-y-1">
             <label class="block text-red-400 font-bold">會員編號</label>
@@ -1325,7 +1354,6 @@
           <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
         </div>
 
-        <!-- 抵達/回程航班與時間 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">去程航班代碼</label>
@@ -1354,7 +1382,6 @@
           </div>
         </div>
 
-        <!-- 停留晚數、發放積分（限定純數字/數字鍵盤）、專員、狀態 -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">停留晚數</label>
