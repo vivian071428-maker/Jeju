@@ -419,7 +419,7 @@
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表
+    // 6. 渲染即時營運行程總表（姓名列移除 VIP 標籤）
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -453,7 +453,7 @@
         if (profile.clientType === 'long') {
           clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-red-950 border border-red-800/60 text-red-300 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
         } else if (profile.clientType === 'short') {
-          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800/60 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
+          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
         }
 
         const departureText = g.isDepartureUncertain 
@@ -481,7 +481,6 @@
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
-                ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold whitespace-nowrap">#${g.memberId}</span>` : ''}
                 <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 修改</span>
               </button>
               <div class="flex items-center gap-2">
@@ -537,6 +536,7 @@
       }).join("");
     }
 
+    // 7. 渲染房務警戒看板（姓名列移除 VIP 標籤）
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -614,12 +614,12 @@
                 <button onclick="openEditDrawer('${g.id}')" class="text-sm font-bold text-white hover:text-red-400 transition text-left underline decoration-neutral-700 flex items-center gap-1">
                   <span>${g.name || '未填'}</span>
                   <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span>
-                  ${g.memberId ? `<span class="text-[10px] text-red-400 font-mono font-bold">#${g.memberId}</span>` : ''}
                   <span class="text-[10px] text-red-500 font-normal">✎</span>
                 </button>
                 <div class="flex-shrink-0">${badge}</div>
               </div>
               <div class="text-xs text-neutral-400 space-y-1">
+                ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
                 <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '長期客戶' : (profile.clientType === 'short' ? '短期客戶' : '新客')}</span> | 累積總積分: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
                 ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
@@ -649,7 +649,7 @@
       }).join("");
     }
 
-    // 8. 渲染分頁 3：貴賓 CRM 客戶庫
+    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（姓名列移除 VIP 標籤）
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
@@ -755,7 +755,6 @@
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
-                ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold">#${g.memberId}</span>` : ''}
                 <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 編輯</span>
               </button>
               <div class="text-right flex items-center gap-3">
@@ -769,6 +768,7 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
               <div class="space-y-1">
+                ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
                 <div class="flex items-center gap-1.5 font-mono text-neutral-200">
                   <span>護照: ${passText}</span>
                   <button onclick="toggleMask('${g.id}')" class="p-0.5 rounded hover:bg-neutral-800 transition" title="切換遮罩">
@@ -886,7 +886,7 @@
       renderDashboard();
     };
 
-    // 10. 護照照片燈箱預覽（頂層顯示）
+    // 10. 護照照片燈箱預覽
     window.viewPassportPhoto = (id) => {
       const g = allGuests[id];
       if (!g || !g.passportImage) {
@@ -1555,7 +1555,7 @@
 
   </main>
 
-  <!-- 護照照片最高圖層燈箱 (z-[70] 超越 Drawer 彈窗) -->
+  <!-- 護照照片最高圖層燈箱 (z-[70]) -->
   <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
