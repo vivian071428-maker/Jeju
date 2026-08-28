@@ -99,6 +99,44 @@
       return first + rest;
     }
 
+    // 智能等比例縮圖壓縮（最長邊 1024px，輸出輕量 JPEG 格式）
+    function compressImageForStorage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxDimension = 1024;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > maxDimension) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              }
+            } else {
+              if (height > maxDimension) {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+            resolve(compressedDataUrl);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
     // 3. 全局客戶 CRM 聚合引擎
     function buildClientProfileMap(guestList, nowTs) {
       const profileMap = {};
@@ -111,6 +149,7 @@
 
         if (!profileMap[key]) {
           profileMap[key] = {
+            key: key,
             closedHistoryPoints: 0,
             activeTripPoints: 0,
             allVisits: [],
@@ -380,7 +419,7 @@
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表（醒目的護照圖查看按鈕）
+    // 6. 渲染即時營運行程總表
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -428,10 +467,10 @@
         const formattedArrivalFlight = formatFlightWithAirline(g.airline);
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
-        // 護照照片按鈕
+        // 護照照片按鈕：未上傳時點擊觸發補傳相機/檔案
         const passportPhotoBtn = g.passportImage 
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
-          : `<button onclick="openEditDrawer('${g.id}')" class="px-2 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 border border-neutral-700 rounded text-[11px] transition">未傳照片</button>`;
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
@@ -610,7 +649,7 @@
       }).join("");
     }
 
-    // 8. 渲染分頁 3：貴賓 CRM 客戶庫
+    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（個資遮蔽、點擊姓名編輯、補傳護照、刪除客戶全紀錄）
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
@@ -692,6 +731,9 @@
         const isUnmasked = unmaskedIds.has(g.id);
         const passText = isUnmasked ? (g.passport || '-') : maskString(g.passport, 4);
         const idText = isUnmasked ? (g.nationalId || '-') : maskString(g.nationalId, 3);
+        const eyeIcon = isUnmasked 
+          ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
+          : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
         let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 text-xs font-medium">新客/單次</span>`;
         if (p.clientType === 'long') {
@@ -702,17 +744,20 @@
 
         const passportPhotoBtn = g.passportImage 
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
-          : `<button onclick="openEditDrawer('${g.id}')" class="px-2 py-0.5 bg-neutral-800 text-neutral-400 hover:text-neutral-200 border border-neutral-700 rounded text-[11px] transition">未傳照片</button>`;
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-base font-bold text-white">${g.name || '未填寫'}</span>
+              <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-2 flex-wrap min-w-0">
+                <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
+                  ${g.name || '未填寫'}
+                </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
                 ${g.memberId ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-red-400 font-mono text-[10px] font-bold">#${g.memberId}</span>` : ''}
-              </div>
+                <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 編輯</span>
+              </button>
               <div class="text-right flex items-center gap-3">
                 ${passportPhotoBtn}
                 <div>
@@ -724,7 +769,13 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
               <div class="space-y-1">
-                <div>護照: <span class="text-neutral-200 font-mono">${passText}</span> | 身分證: <span class="text-neutral-300 font-mono">${idText}</span></div>
+                <div class="flex items-center gap-1.5 font-mono text-neutral-200">
+                  <span>護照: ${passText}</span>
+                  <button onclick="toggleMask('${g.id}')" class="p-0.5 rounded hover:bg-neutral-800 transition" title="切換遮罩">
+                    ${eyeIcon}
+                  </button>
+                </div>
+                <div class="font-mono text-neutral-300">身分證: ${idText}</div>
                 <div>LINE 暱稱: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
                 ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
               </div>
@@ -735,7 +786,10 @@
               </div>
             </div>
 
-            <div class="pt-2 border-t border-neutral-800/80 flex items-center justify-end">
+            <div class="pt-2 border-t border-neutral-800/80 flex items-center justify-between">
+              <button onclick="deleteEntireClient('${p.key}')" class="text-xs text-neutral-500 hover:text-red-400 transition font-medium">
+                🗑 刪除客戶全紀錄
+              </button>
               <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold transition">
                 查看客戶完整歷程 / 編輯資料
               </button>
@@ -832,7 +886,7 @@
       renderDashboard();
     };
 
-    // 10. 護照照片燈箱預覽
+    // 10. 護照照片燈箱預覽與補傳功能
     window.viewPassportPhoto = (id) => {
       const g = allGuests[id];
       if (!g || !g.passportImage) {
@@ -848,6 +902,31 @@
       document.getElementById("passportPhotoModal").classList.add("hidden");
       document.getElementById("passportModalImg").src = "";
     };
+
+    // 工作人員補傳護照圖檔
+    let uploadingGuestTargetId = null;
+    const adminUploadInput = document.getElementById("adminPassportUploadInput");
+
+    window.triggerUploadPassport = (id) => {
+      uploadingGuestTargetId = id;
+      adminUploadInput.value = "";
+      adminUploadInput.click();
+    };
+
+    adminUploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file || !uploadingGuestTargetId) return;
+
+      try {
+        const compressedBase64 = await compressImageForStorage(file);
+        await update(ref(db, `guests/${uploadingGuestTargetId}`), {
+          passportImage: compressedBase64
+        });
+        alert("護照照片已成功補傳並儲存！");
+      } catch (err) {
+        alert("補傳失敗: " + err.message);
+      }
+    });
 
     // 11. 編輯 / 歷史紀錄 Drawer 彈窗
     let editingGuestId = null;
@@ -892,10 +971,14 @@
       document.getElementById("editNote").value = g.note || '';
 
       const drawerPhotoBtn = document.getElementById("drawerPassportPhotoBtn");
+      const drawerUploadPhotoBtn = document.getElementById("drawerUploadPassportPhotoBtn");
+
       if (g.passportImage) {
         drawerPhotoBtn.classList.remove("hidden");
+        drawerUploadPhotoBtn.classList.add("hidden");
       } else {
         drawerPhotoBtn.classList.add("hidden");
+        drawerUploadPhotoBtn.classList.remove("hidden");
       }
 
       updateDrawerPointsDisplay();
@@ -951,6 +1034,10 @@
 
     window.openDrawerPassportPhoto = () => {
       if (editingGuestId) viewPassportPhoto(editingGuestId);
+    };
+
+    window.triggerDrawerUploadPassport = () => {
+      if (editingGuestId) triggerUploadPassport(editingGuestId);
     };
 
     window.onDrawerPointsInput = () => {
@@ -1042,9 +1129,35 @@
       }
     });
 
-    // 12. 房務操作與續訂
+    // 12. 刪除整位客戶所有關聯資訊（CRM 專用）
+    window.deleteEntireClient = async (profileKey) => {
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      const nowTs = Date.now();
+      const profileMap = buildClientProfileMap(guestList, nowTs);
+      const profile = profileMap[profileKey];
+
+      if (!profile || !profile.allVisits || profile.allVisits.length === 0) {
+        alert("找不到此客戶的關聯資料。");
+        return;
+      }
+
+      const clientName = profile.mainGuest?.name || '此客戶';
+      const visitCount = profile.allVisits.length;
+
+      if (confirm(`【警告】確定要刪除「${clientName}」的所有資料嗎？\n這將一併刪除該客戶名下的全部 ${visitCount} 筆行程紀錄且無法復原！`)) {
+        try {
+          const deletePromises = profile.allVisits.map(v => remove(ref(db, `guests/${v.id}`)));
+          await Promise.all(deletePromises);
+          alert(`已成功刪除客戶「${clientName}」及其全部 ${visitCount} 筆關聯紀錄！`);
+        } catch (err) {
+          alert("刪除失敗: " + err.message);
+        }
+      }
+    };
+
+    // 單筆刪除
     window.deleteGuest = (id) => {
-      if (confirm("確定要刪除這筆旅客資料嗎？（刪除後無法復原）")) {
+      if (confirm("確定要刪除這筆旅客行程資料嗎？（刪除後無法復原）")) {
         remove(ref(db, `guests/${id}`));
       }
     };
@@ -1220,6 +1333,9 @@
 
 <body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white flex overflow-x-hidden">
 
+  <!-- 隱藏的工作人員護照補傳專用 Input -->
+  <input id="adminPassportUploadInput" type="file" accept="image/*" class="hidden" />
+
   <!-- PIN 驗證遮罩 -->
   <div id="authOverlay" class="fixed inset-0 bg-neutral-950/95 flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 text-center shadow-2xl">
@@ -1232,7 +1348,7 @@
     </div>
   </div>
 
-  <!-- 側邊欄抽屜遮罩（手機端點選背景收合） -->
+  <!-- 側邊欄抽屜遮罩 -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
   <!-- 側邊抽屜導航欄 (Sidebar Drawer) -->
@@ -1485,6 +1601,9 @@
         </button>
         <button id="drawerPassportPhotoBtn" onclick="openDrawerPassportPhoto()" class="hidden px-3 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">
           📷 查看護照原圖
+        </button>
+        <button id="drawerUploadPassportPhotoBtn" onclick="triggerDrawerUploadPassport()" class="hidden px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded-xl text-xs font-bold transition flex items-center gap-1">
+          📷 補傳護照照片
         </button>
       </div>
 
