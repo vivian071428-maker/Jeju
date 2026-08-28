@@ -51,7 +51,6 @@
     const departureUncertain = document.getElementById("departureUncertain");
     const noteInput = document.getElementById("note");
     
-    const arrivalError = document.getElementById("arrivalError");
     const departureError = document.getElementById("departureError");
     const passportFileInput = document.getElementById("passportFile");
     const ocrStatus = document.getElementById("ocrStatus");
@@ -235,7 +234,7 @@
       }
     });
 
-    // 2. 勾選「尚未確定離開時間」切換（免填回程班機與離開時間）
+    // 2. 勾選「尚未確定離開時間」切換
     departureUncertain.addEventListener("change", (e) => {
       if (e.target.checked) {
         departureInput.value = "";
@@ -291,7 +290,7 @@
       e.target.value = e.target.value.toUpperCase();
     });
 
-    // 3. 送出表單資料（自動根據抵達與離開時間推算停留晚數）
+    // 3. 送出表單資料
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const passportVal = passportInput.value.trim();
@@ -342,6 +341,7 @@
 
         formContainer.classList.add("hidden");
         successContainer.classList.remove("hidden");
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } catch (err) {
         alert("送出失敗：" + err.message);
       } finally {
@@ -350,13 +350,13 @@
       }
     });
 
+    // 4. 重置並返回填寫
     window.resetAndReturn = (clearFields) => {
       if (clearFields) {
         form.reset();
-        ocrStatus.classList.add("hidden");
-        passportError.classList.add("hidden");
-        arrivalError.classList.add("hidden");
-        departureError.classList.add("hidden");
+        if (ocrStatus) ocrStatus.classList.add("hidden");
+        if (passportError) passportError.classList.add("hidden");
+        if (departureError) departureError.classList.add("hidden");
         departureInput.disabled = false;
         returnAirlineInput.disabled = false;
         departureInput.required = true;
@@ -365,6 +365,7 @@
       }
       successContainer.classList.add("hidden");
       formContainer.classList.remove("hidden");
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     };
   </script>
   <style>
