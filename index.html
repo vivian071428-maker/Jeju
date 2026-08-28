@@ -55,6 +55,8 @@
     const passportFileInput = document.getElementById("passportFile");
     const ocrStatus = document.getElementById("ocrStatus");
 
+    let compressedPassportImageBase64 = ""; // 儲存極小化的護照圖檔
+
     // 1. 初始化 MRZ Worker
     let worker = null;
     async function initWorker() {
@@ -69,6 +71,46 @@
     }
     initWorker();
 
+    // 智能等比例縮圖壓縮（最長邊 1024px，JPEG 品質 0.65，容量降至 60~90KB）
+    function compressImageForStorage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const maxDimension = 1024;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+              if (width > maxDimension) {
+                height = Math.round((height * maxDimension) / width);
+                width = maxDimension;
+              }
+            } else {
+              if (height > maxDimension) {
+                width = Math.round((width * maxDimension) / height);
+                height = maxDimension;
+              }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            // 輸出輕量 JPEG 格式
+            const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
+            resolve(compressedDataUrl);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // OCR 專用二值化局部裁切
     function preprocessPassportMRZ(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -187,10 +229,14 @@
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
           <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
         </svg>
-        護照機讀碼辨識中...
+        照片壓縮儲存中並進行文字辨識...
       `;
 
       try {
+        // 同步進行高效率圖檔壓縮儲存
+        compressedPassportImageBase64 = await compressImageForStorage(file);
+
+        // 執行 OCR 辨識
         const processedImg = await preprocessPassportMRZ(file);
         const w = await initWorker();
         const { data: { text } } = await w.recognize(processedImg);
@@ -209,6 +255,7 @@
         }
         if (res.nationalId) {
           nationalIdInput.value = res.nationalId;
+          formatNationalIdField();
           detected.push("身分證字號");
         }
         if (res.birthday) {
@@ -222,15 +269,15 @@
 
         if (detected.length > 0) {
           ocrStatus.className = "text-xs text-emerald-400 font-medium mt-2";
-          ocrStatus.innerHTML = `✓ 已成功帶入：${detected.join("、")}。請手動輸入中文姓名並核對內容。`;
+          ocrStatus.innerHTML = `✓ 護照原圖已保存，並自動帶入：${detected.join("、")}。請核對內容。`;
         } else {
           ocrStatus.className = "text-xs text-amber-400 font-medium mt-2";
-          ocrStatus.innerHTML = "未能精準識別機讀碼，請直接手動填寫。";
+          ocrStatus.innerHTML = "護照照片已成功保存！若有未能辨識之欄位請手動補填。";
         }
       } catch (err) {
         console.error(err);
-        ocrStatus.className = "text-xs text-red-400 font-medium mt-2";
-        ocrStatus.innerHTML = "辨識失敗，請直接手動輸入。";
+        ocrStatus.className = "text-xs text-amber-400 font-medium mt-2";
+        ocrStatus.innerHTML = "護照照片已保存，請手動輸入文字欄位。";
       }
     });
 
@@ -276,11 +323,15 @@
       e.target.value = e.target.value.toUpperCase();
     });
 
-    nationalIdInput.addEventListener("input", (e) => {
-      let val = e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
-      if (val.length > 10) val = val.slice(0, 10);
-      e.target.value = val;
-    });
+    function formatNationalIdField() {
+      let clean = nationalIdInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!clean) { nationalIdInput.value = ''; return; }
+      let first = clean.charAt(0).replace(/[^A-Z]/g, '');
+      let rest = clean.substring(1).replace(/[^0-9]/g, '').slice(0, 9);
+      nationalIdInput.value = first + rest;
+    }
+
+    nationalIdInput.addEventListener("input", formatNationalIdField);
 
     airlineInput.addEventListener("input", (e) => {
       e.target.value = e.target.value.toUpperCase();
@@ -290,7 +341,7 @@
       e.target.value = e.target.value.toUpperCase();
     });
 
-    // 3. 送出表單資料
+    // 3. 送出表單資料（包含壓縮後的護照圖片 Base64）
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const passportVal = passportInput.value.trim();
@@ -331,6 +382,7 @@
           isDepartureUncertain: isUncertain,
           stayDays: stayDaysCount,
           note: noteInput.value.trim(),
+          passportImage: compressedPassportImageBase64 || "", // 輕量化護照縮圖
           points: 0,
           staff: "",
           roomExtendedCount: 0,
@@ -350,10 +402,10 @@
       }
     });
 
-    // 4. 重置並返回填寫
     window.resetAndReturn = (clearFields) => {
       if (clearFields) {
         form.reset();
+        compressedPassportImageBase64 = "";
         if (ocrStatus) ocrStatus.classList.add("hidden");
         if (passportError) passportError.classList.add("hidden");
         if (departureError) departureError.classList.add("hidden");
@@ -411,7 +463,7 @@
             </label>
             <input id="passportFile" type="file" accept="image/*" class="hidden" />
           </div>
-          <p class="text-[10px] text-neutral-400 leading-relaxed">拍照上傳後將自動辨識英文姓名、護照號碼、身分證、生日與性別；亦可直接於下方手動輸入。</p>
+          <p class="text-[10px] text-neutral-400 leading-relaxed">拍照上傳後將自動辨識英文姓名、護照號碼、身分證、生日與性別，並自動留存護照圖檔以利核對；亦可直接於下方手動輸入。</p>
           <div id="ocrStatus" class="hidden text-xs pt-0.5"></div>
         </div>
 
@@ -505,7 +557,7 @@
               <input id="departure" type="datetime-local" required class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 transition" />
             </div>
           </div>
-          <p id="departureError" class="hidden text-xs text-red-400 font-medium"></p>
+          <p id="departureError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
         </div>
 
         <!-- 特殊需求與行程備註 -->
