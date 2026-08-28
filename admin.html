@@ -27,9 +27,9 @@
     const db = getDatabase(app);
 
     let allGuests = {};
-    let activeTab = 'roster'; // 'roster' | 'housekeeping'
-    let rosterFilter = 'all'; // 'all' | 'todayArr' | 'inIsland' | 'todayDep'
-    let housekeepingFilter = 'all'; // 'all' | 'inIsland' | 'care48' | 'alert24'
+    let activeTab = 'roster'; 
+    let rosterFilter = 'all'; 
+    let housekeepingFilter = 'all'; 
     let unmaskedIds = new Set();
     const ADMIN_PIN = "8888";
 
@@ -62,6 +62,50 @@
       if (!str) return '-';
       if (str.length <= visibleChars) return str;
       return str.substring(0, visibleChars) + '****';
+    }
+
+    // 自動解析航空公司名稱
+    function formatFlightWithAirline(flightNo) {
+      if (!flightNo) return '-';
+      const clean = flightNo.trim().toUpperCase();
+      const prefix = clean.replace(/[^A-Z0-9]/g, '');
+
+      const airlineMap = {
+        'KE': '大韓航空',
+        'OZ': '韓亞航空',
+        '7C': '濟州航空',
+        'TW': '德威航空',
+        'LJ': '真航空',
+        'BX': '釜山航空',
+        'RS': '首爾航空',
+        'ZE': '易斯達航空',
+        'CI': '中華航空',
+        'BR': '長榮航空',
+        'IT': '台灣虎航',
+        'JX': '星宇航空',
+        'CX': '國泰航空',
+        'UO': '香港快運',
+        'HX': '香港航空',
+        'MU': '中國東方航空',
+        'CZ': '中國南方航空',
+        'CA': '中國國際航空',
+        'HO': '吉祥航空',
+        '9C': '春秋航空',
+        'MF': '廈門航空',
+        'SC': '山東航空',
+        'JL': '日本航空',
+        'NH': '全日空',
+        'MM': '樂桃航空',
+        'TR': '酷航',
+        'SQ': '新加坡航空'
+      };
+
+      for (const [code, name] of Object.entries(airlineMap)) {
+        if (prefix.startsWith(code)) {
+          return `${clean} (${name})`;
+        }
+      }
+      return clean;
     }
 
     // 3. 客戶分析運算引擎
@@ -121,16 +165,23 @@
       return profileMap;
     }
 
-    // 房務倒數運算
+    // 房務倒數運算（未定離開日者自動以抵達日起算 5 天為暫定退房日）
     function getHousekeepingAlertLevel(g, nowTs) {
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
         return 'closed';
       }
 
       const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
-      const depTime = g.departure ? new Date(g.departure).getTime() : 0;
+      let depTime = g.departure ? new Date(g.departure).getTime() : 0;
 
-      if (!depTime || g.isDepartureUncertain) return 'normal';
+      if (g.isDepartureUncertain || !depTime) {
+        if (arrTime > 0) {
+          depTime = arrTime + (5 * 24 * 60 * 60 * 1000);
+        } else {
+          return 'normal';
+        }
+      }
+
       if (nowTs > depTime) return 'overdue';
 
       const hoursUntilArrival = (arrTime - nowTs) / (1000 * 60 * 60);
@@ -159,44 +210,42 @@
       
       const profileMap = buildClientProfileMap(guestList);
 
-      // 行程總表數據統計
       let totalCount = guestList.length;
       let todayArrCount = 0;
       let inIslandCount = 0;
       let todayDepCount = 0;
 
-      // 房務警戒數據統計
       let hkInIslandCount = 0;
       let care48Count = 0;
       let alert24Count = 0;
 
       guestList.forEach(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
-        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        let depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        if (g.isDepartureUncertain || !depTime) {
+          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+        }
+
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
         const depDateStr = g.departure ? g.departure.split('T')[0] : '';
 
-        // 行程總表條件
         if (arrDateStr === todayDateStr) todayArrCount++;
         if (depDateStr === todayDateStr && !g.isDepartureUncertain) todayDepCount++;
-        if (nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime)) {
+        if (nowTs >= arrTime && (!depTime || nowTs <= depTime)) {
           inIslandCount++;
           hkInIslandCount++;
         }
 
-        // 房務警戒條件
         const level = getHousekeepingAlertLevel(g, nowTs);
         if (level === 'care48') care48Count++;
         if (level === 'alert24') alert24Count++;
       });
 
-      // 更新行程總表卡片數值
       document.getElementById("statTotal").innerText = totalCount;
       document.getElementById("statTodayArr").innerText = todayArrCount;
       document.getElementById("statInIsland").innerText = inIslandCount;
       document.getElementById("statTodayDep").innerText = todayDepCount;
 
-      // 更新房務警戒卡片數值
       document.getElementById("statHkTotal").innerText = totalCount;
       document.getElementById("statHkInIsland").innerText = hkInIslandCount;
       document.getElementById("statHkCare48").innerText = care48Count;
@@ -208,7 +257,6 @@
     }
 
     function updateCardActiveStyles() {
-      // 行程總表卡片樣式
       const rosterCards = {
         'all': document.getElementById("cardAll"),
         'todayArr': document.getElementById("cardTodayArr"),
@@ -225,7 +273,6 @@
         }
       });
 
-      // 房務警戒卡片樣式
       const hkCards = {
         'all': document.getElementById("cardHkAll"),
         'inIsland': document.getElementById("cardHkInIsland"),
@@ -251,18 +298,20 @@
 
       let filtered = guestList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
-        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        let depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        if (g.isDepartureUncertain || !depTime) {
+          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+        }
+
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
         const depDateStr = g.departure ? g.departure.split('T')[0] : '';
         const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
         const cType = profileMap[key]?.clientType || 'other';
 
-        // 頂部行程卡片過濾
         if (rosterFilter === 'todayArr' && arrDateStr !== todayDateStr) return false;
         if (rosterFilter === 'todayDep' && (depDateStr !== todayDateStr || g.isDepartureUncertain)) return false;
-        if (rosterFilter === 'inIsland' && !(nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime))) return false;
+        if (rosterFilter === 'inIsland' && !(nowTs >= arrTime && (!depTime || nowTs <= depTime))) return false;
 
-        // 下拉選單過濾
         if (unifiedFilter === 'long' && cType !== 'long') return false;
         if (unifiedFilter === 'short' && cType !== 'short') return false;
         if (unifiedFilter === 'other' && cType !== 'other') return false;
@@ -294,6 +343,7 @@
                (g.nationalId || "").toLowerCase().includes(searchVal) ||
                (g.lineNickname || "").toLowerCase().includes(searchVal) ||
                (g.airline || "").toLowerCase().includes(searchVal) ||
+               (g.returnAirline || "").toLowerCase().includes(searchVal) ||
                (g.staff || "").toLowerCase().includes(searchVal) ||
                (g.note || "").toLowerCase().includes(searchVal);
       });
@@ -301,8 +351,8 @@
       filtered.sort((a, b) => {
         const aArr = a.arrival ? new Date(a.arrival).getTime() : 0;
         const bArr = b.arrival ? new Date(b.arrival).getTime() : 0;
-        const aDep = a.departure ? new Date(a.departure).getTime() : Infinity;
-        const bDep = b.departure ? new Date(b.departure).getTime() : Infinity;
+        const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
+        const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
 
         if (rosterFilter === 'todayArr' || unifiedFilter === '24h_arrival') {
           return aArr - bArr;
@@ -368,12 +418,19 @@
         }
 
         const departureText = g.isDepartureUncertain 
-          ? `<span class="text-amber-400 font-medium">尚未確定</span>` 
+          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定5天)</span>` 
           : (g.departure ? g.departure.replace('T', ' ') : '-');
+
+        const stayDaysText = g.isDepartureUncertain 
+          ? '暫定 5 晚' 
+          : `${g.stayDays || 1} 晚`;
 
         const reservationSummary = (['long', 'short', 'other'].includes(unifiedFilter) && profile.allVisits.length > 1)
           ? `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 text-[10px] whitespace-nowrap">共 ${profile.allVisits.length} 筆預約行程</span>`
           : '';
+
+        const formattedArrivalFlight = formatFlightWithAirline(g.airline);
+        const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
@@ -407,16 +464,17 @@
               </div>
 
               <div class="space-y-1">
-                <div>航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${g.airline || '-'}</span></div>
-                <div>抵達: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
-                <div>離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${g.isDepartureUncertain ? '天數未定' : (g.stayDays || 1) + ' 晚'})</span></div>
+                <div>去程航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedArrivalFlight}</span></div>
+                <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
+                <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
+                <div>起飛離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
                 <div>本次發放積分: <span class="text-neutral-200 font-mono font-bold">${g.points || 0}</span> 點</div>
               </div>
             </div>
 
             ${g.note ? `
               <div class="bg-neutral-950/70 border border-neutral-800 rounded-xl p-2 text-[11px] text-amber-300/90 flex items-start gap-1.5">
-                <span class="text-amber-500 font-bold">備註:</span>
+                <span class="text-amber-500 font-bold whitespace-nowrap">客戶需求/備註:</span>
                 <span class="truncate">${g.note}</span>
               </div>
             ` : ''}
@@ -437,19 +495,22 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板（支援專屬房務卡片快篩）
+    // 7. 渲染房務警戒看板
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
       let activeStayGuests = guestList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
-        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        let depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        if (g.isDepartureUncertain || !depTime) {
+          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+        }
+
         const level = getHousekeepingAlertLevel(g, nowTs);
 
         if (level === 'closed') return false;
 
-        // 房務頂部卡片過濾
-        if (housekeepingFilter === 'inIsland' && !(nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime))) return false;
+        if (housekeepingFilter === 'inIsland' && !(nowTs >= arrTime && (!depTime || nowTs <= depTime))) return false;
         if (housekeepingFilter === 'care48' && level !== 'care48') return false;
         if (housekeepingFilter === 'alert24' && level !== 'alert24') return false;
 
@@ -461,20 +522,26 @@
         return;
       }
 
-      // 依最接近離開退房時間升序排列
       activeStayGuests.sort((a, b) => {
-        const aDep = a.departure ? new Date(a.departure).getTime() : Infinity;
-        const bDep = b.departure ? new Date(b.departure).getTime() : Infinity;
+        const aArr = a.arrival ? new Date(a.arrival).getTime() : 0;
+        const bArr = b.arrival ? new Date(b.arrival).getTime() : 0;
+        const aDep = a.departure ? new Date(a.departure).getTime() : (aArr > 0 ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
+        const bDep = b.departure ? new Date(b.departure).getTime() : (bArr > 0 ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
         return aDep - bDep;
       });
 
       container.innerHTML = activeStayGuests.map(g => {
+        const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
+        let depTime = g.departure ? new Date(g.departure).getTime() : 0;
+        if (g.isDepartureUncertain || !depTime) {
+          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+        }
+
         const level = getHousekeepingAlertLevel(g, nowTs);
-        const depTime = g.departure ? new Date(g.departure).getTime() : 0;
         const timeLeftHours = depTime ? Math.max(0, (depTime - nowTs) / (1000 * 60 * 60)) : 0;
         const nightsRemaining = Math.ceil(timeLeftHours / 24);
         
-        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">正常住宿中 ${g.isDepartureUncertain ? '(未定離開日)' : `(剩 ${nightsRemaining} 晚)`}</span>`;
+        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">正常住宿中 ${g.isDepartureUncertain ? '(暫定5天 / 剩 ' + nightsRemaining + ' 晚)' : `(剩 ${nightsRemaining} 晚)`}</span>`;
         let cardBorder = "border-neutral-800";
 
         if (level === 'alert24') {
@@ -491,8 +558,10 @@
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [], upcomingVisits: [], historyVisits: [] };
 
         const departureText = g.isDepartureUncertain 
-          ? `<span class="text-amber-400 font-medium">尚未確定</span>` 
+          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定5天: ${new Date(depTime).toISOString().split('T')[0]})</span>` 
           : (g.departure ? g.departure.split('T')[0] : '-');
+
+        const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
         return `
           <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
@@ -511,9 +580,10 @@
                 ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
                 <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${departureText}</span></div>
-                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.isDepartureUncertain ? '尚未確定' : (g.stayDays || 1) + ' 晚'}</span> ${!g.isDepartureUncertain && timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
+                <div>回程航班: <span class="text-neutral-200 font-mono">${formattedReturnFlight}</span></div>
+                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.isDepartureUncertain ? '暫定 5 晚' : (g.stayDays || 1) + ' 晚'}</span> ${timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
                 <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
-                ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1">備註: ${g.note}</div>` : ''}
+                ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1 font-medium">📌 客戶需求: ${g.note}</div>` : ''}
               </div>
             </div>
 
@@ -522,7 +592,7 @@
                 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="openExtendModal('${g.id}', ${g.stayDays || 1})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
+                <button onclick="openExtendModal('${g.id}', ${g.isDepartureUncertain ? 5 : (g.stayDays || 1)})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
                   + 續住加訂
                 </button>
                 <button onclick="closeStayCase('${g.id}')" class="py-2 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-xl transition">
@@ -552,7 +622,7 @@
       const headers = [
         "會員編號", "中文姓名", "護照英文姓名", "推薦人", "護照號碼", "身分證字號", "客群分類",
         "結案累積總積分", "本次發放積分", "性別", "出生年月日", "LINE暱稱",
-        "抵達航班", "抵達時間", "離開時間", "停留晚數", "接待專員", "狀態", "備註"
+        "去程航班", "抵達時間", "回程航班", "離開時間(起飛)", "停留晚數", "接待專員", "狀態", "客戶需求與備註"
       ];
 
       const rows = list.map(g => {
@@ -572,10 +642,11 @@
           `"${g.gender === 'M' ? '男' : (g.gender === 'F' ? '女' : '')}"`,
           `"${g.birthday || ''}"`,
           `"${(g.lineNickname || '').replace(/"/g, '""')}"`,
-          `"${(g.airline || '').replace(/"/g, '""')}"`,
+          `"${(formatFlightWithAirline(g.airline) || '').replace(/"/g, '""')}"`,
           `"${(g.arrival || '').replace('T', ' ')}"`,
-          `"${g.isDepartureUncertain ? '尚未確定' : (g.departure || '').replace('T', ' ')}"`,
-          `"${g.isDepartureUncertain ? '未定' : (g.stayDays || 1)}"`,
+          `"${g.isDepartureUncertain ? '尚未確定' : (formatFlightWithAirline(g.returnAirline) || '').replace(/"/g, '""')}"`,
+          `"${g.isDepartureUncertain ? '尚未確定 (暫定5天)' : (g.departure || '').replace('T', ' ')}"`,
+          `"${g.isDepartureUncertain ? '暫定5晚' : (g.stayDays || 1)}"`,
           `"${(g.staff || '').replace(/"/g, '""')}"`,
           `"${g.status || 'pending'}"`,
           `"${(g.note || '').replace(/"/g, '""')}"`
@@ -639,9 +710,10 @@
       document.getElementById("editLineNickname").value = g.lineNickname || '';
       document.getElementById("editAirline").value = g.airline || '';
       document.getElementById("editArrival").value = g.arrival || '';
+      document.getElementById("editReturnAirline").value = g.returnAirline || '';
       document.getElementById("editDeparture").value = g.departure || '';
       document.getElementById("editDepartureUncertain").checked = !!g.isDepartureUncertain;
-      document.getElementById("editStayDays").value = g.stayDays || 1;
+      document.getElementById("editStayDays").value = g.isDepartureUncertain ? 5 : (g.stayDays || 1);
       document.getElementById("editStaff").value = g.staff || '';
       document.getElementById("editStatus").value = g.status || 'pending';
       document.getElementById("editPoints").value = g.points || 0;
@@ -659,14 +731,14 @@
         html += profile.upcomingVisits.map((v) => `
           <div class="bg-neutral-950 border ${v.id === id ? 'border-red-600/80 bg-red-950/20' : 'border-neutral-800'} rounded-xl p-2.5 text-xs space-y-1">
             <div class="flex items-center justify-between text-neutral-200 font-medium">
-              <span>期間：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.isDepartureUncertain ? '未定' : (v.departure ? v.departure.split('T')[0] : '-')}</span>
+              <span>期間：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.isDepartureUncertain ? '未定(暫定5天)' : (v.departure ? v.departure.split('T')[0] : '-')}</span>
               <span class="text-red-400 font-bold font-mono text-[10px] uppercase">${v.status || 'pending'}</span>
             </div>
             <div class="text-neutral-400 flex items-center justify-between text-[11px]">
-              <span>航班: ${v.airline || '-'} | 晚數: ${v.isDepartureUncertain ? '未定' : (v.stayDays || 1) + ' 晚'} | 專員: ${v.staff || '未指派'}</span>
+              <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.isDepartureUncertain ? '暫定5晚' : (v.stayDays || 1) + '晚'}</span>
               ${v.id === id ? '<span class="text-red-400 text-[10px] font-bold">當前編輯中</span>' : `<button onclick="openEditDrawer('${v.id}')" class="text-[10px] text-neutral-400 underline hover:text-white">切換編輯</button>`}
             </div>
-            ${v.note ? `<div class="text-amber-400/80 text-[10px]">備註: ${v.note}</div>` : ''}
+            ${v.note ? `<div class="text-amber-400/80 text-[10px]">需求: ${v.note}</div>` : ''}
           </div>
         `).join("");
       }
@@ -680,10 +752,10 @@
               <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
             </div>
             <div class="text-neutral-500 flex items-center justify-between text-[11px]">
-              <span>航班: ${v.airline || '-'} | 晚數: ${v.stayDays || 1} 晚 | 專員: ${v.staff || '未指派'}</span>
+              <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.stayDays || 1} 晚</span>
               <span class="text-emerald-400/90 font-medium">已結案</span>
             </div>
-            ${v.note ? `<div class="text-amber-400/80 text-[10px]">備註: ${v.note}</div>` : ''}
+            ${v.note ? `<div class="text-amber-400/80 text-[10px]">需求: ${v.note}</div>` : ''}
           </div>
         `).join("");
       }
@@ -719,6 +791,18 @@
       if (!editingGuestId) return;
 
       const isUncertain = document.getElementById("editDepartureUncertain").checked;
+      const arrVal = document.getElementById("editArrival").value;
+      const depVal = document.getElementById("editDeparture").value;
+      
+      let stayDaysCalculated = parseInt(document.getElementById("editStayDays").value, 10) || 1;
+      if (isUncertain) {
+        stayDaysCalculated = 5;
+      } else if (arrVal && depVal) {
+        const d1 = new Date(arrVal);
+        const d2 = new Date(depVal);
+        stayDaysCalculated = Math.ceil(Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)) || stayDaysCalculated;
+      }
+
       const updatedData = {
         memberId: document.getElementById("editMemberId").value.trim().toUpperCase(),
         name: document.getElementById("editName").value.trim(),
@@ -730,10 +814,11 @@
         gender: document.getElementById("editGender").value,
         lineNickname: document.getElementById("editLineNickname").value.trim(),
         airline: document.getElementById("editAirline").value.trim().toUpperCase(),
-        arrival: document.getElementById("editArrival").value,
-        departure: isUncertain ? "" : document.getElementById("editDeparture").value,
+        arrival: arrVal,
+        returnAirline: isUncertain ? "" : document.getElementById("editReturnAirline").value.trim().toUpperCase(),
+        departure: isUncertain ? "" : depVal,
         isDepartureUncertain: isUncertain,
-        stayDays: parseInt(document.getElementById("editStayDays").value, 10) || 1,
+        stayDays: stayDaysCalculated,
         staff: document.getElementById("editStaff").value.trim(),
         status: document.getElementById("editStatus").value,
         points: parseInt(document.getElementById("editPoints").value, 10) || 0,
@@ -762,7 +847,7 @@
     };
 
     window.copyLineCareText = (name, staff, departure, nightsRemaining) => {
-      const depInfo = departure === '未定' ? '尚未確定' : departure.replace('T', ' ');
+      const depInfo = departure === '未定' ? '尚未確定 (暫定5天)' : departure.replace('T', ' ');
       const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。提醒您預計退房時間為 (${depInfo})。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
       navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
     };
@@ -785,11 +870,17 @@
       const guest = allGuests[currentExtendId];
       if (!guest) return;
 
-      const oldDep = guest.departure ? new Date(guest.departure) : new Date();
-      oldDep.setDate(oldDep.getDate() + addNights);
+      let baseDate = new Date();
+      if (guest.departure) {
+        baseDate = new Date(guest.departure);
+      } else if (guest.arrival) {
+        baseDate = new Date(new Date(guest.arrival).getTime() + (5 * 24 * 60 * 60 * 1000));
+      }
+
+      baseDate.setDate(baseDate.getDate() + addNights);
       
       const pad = (n) => String(n).padStart(2, '0');
-      const newDepStr = `${oldDep.getFullYear()}-${pad(oldDep.getMonth() + 1)}-${pad(oldDep.getDate())}T${pad(oldDep.getHours())}:${pad(oldDep.getMinutes())}`;
+      const newDepStr = `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}T${pad(baseDate.getHours())}:${pad(baseDate.getMinutes())}`;
 
       update(ref(db, `guests/${currentExtendId}`), {
         departure: newDepStr,
@@ -941,11 +1032,10 @@
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-2.5 shadow-md">
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
           
-          <input id="searchInput" placeholder="搜尋會員編號、姓名、護照、身分證、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="searchInput" placeholder="搜尋會員編號、姓名、護照、身分證、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             
-            <!-- 單一全功能篩選下拉選單 (無Emoji) -->
             <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
               <option value="all">全部名單</option>
               <option value="24h_arrival">24小時內即將抵達</option>
@@ -956,7 +1046,6 @@
               <option value="referrer">依推薦人查詢</option>
             </select>
 
-            <!-- 點選推薦人後自動展開的輸入框 -->
             <div id="referrerInputContainer" class="hidden">
               <input id="filterReferrerInput" placeholder="輸入推薦人姓名..." class="px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
             </div>
@@ -976,14 +1065,14 @@
     <div id="housekeepingView" class="hidden space-y-3">
       <div class="flex items-center justify-between">
         <h3 class="text-xs font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
-        <span class="text-[11px] text-neutral-500">依退房日動態倒數（倒數2晚關懷 / 倒數1晚警戒）</span>
+        <span class="text-[11px] text-neutral-500">依退房日動態倒數（未定離開日暫定5天 / 倒數2晚關懷 / 倒數1晚警戒）</span>
       </div>
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
   </div>
 
-  <!-- 點擊姓名彈出：工作人員全面修改 + 推薦人 + 會員編號 + 歷史紀錄 + 積分管理 Drawer 彈窗 -->
+  <!-- 點擊姓名彈出：工作人員全面修改 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       
@@ -1049,7 +1138,6 @@
           </div>
         </div>
 
-        <!-- 出生年月日與性別 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">出生年月日</label>
@@ -1064,28 +1152,34 @@
           </div>
         </div>
 
+        <div>
+          <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
+          <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+        </div>
+
+        <!-- 抵達/回程航班與時間 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
-            <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
-            <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <label class="block text-neutral-400 mb-1">去程航班代碼</label>
+            <input id="editAirline" placeholder="例：KE123" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">抵達航班代碼</label>
-            <input id="editAirline" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
+            <label class="block text-neutral-400 mb-1">預計抵達濟州時間 (降落)</label>
+            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
-            <label class="block text-neutral-400 mb-1">預計抵達濟州時間</label>
-            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <label class="block text-neutral-400 mb-1">回程航班代碼</label>
+            <input id="editReturnAirline" placeholder="例：KE124" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label class="text-neutral-400">預計離開濟州時間</label>
+              <label class="text-neutral-400">離開濟州時間 (起飛)</label>
               <label class="flex items-center gap-1 cursor-pointer select-none text-[11px] text-red-400 font-medium">
                 <input id="editDepartureUncertain" type="checkbox" class="w-3.5 h-3.5 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
-                <span>尚未確定</span>
+                <span>尚未確定 (暫定5天)</span>
               </label>
             </div>
             <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
@@ -1119,8 +1213,8 @@
         </div>
 
         <div>
-          <label class="block text-amber-400 font-semibold mb-1">房務 / 行程特殊備註</label>
-          <textarea id="editNote" rows="3" placeholder="例如：房號 302、加嬰兒床、已收續住尾款等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-amber-500 placeholder:text-neutral-600 leading-relaxed text-xs"></textarea>
+          <label class="block text-amber-400 font-semibold mb-1">客戶需求 / 行程特殊備註</label>
+          <textarea id="editNote" rows="3" placeholder="例如：加嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-amber-500 placeholder:text-neutral-600 leading-relaxed text-xs"></textarea>
         </div>
       </div>
 
@@ -1144,7 +1238,6 @@
           <option value="3">續訂 +3 晚</option>
           <option value="4">續訂 +4 晚</option>
           <option value="5">續訂 +5 晚</option>
-        </select>
       </div>
       <div class="flex gap-2 pt-2">
         <button onclick="closeExtendModal()" class="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs">取消</button>
