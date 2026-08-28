@@ -150,7 +150,6 @@
       });
     }
 
-    // 派車截圖頂部區域裁切與二值化
     function preprocessDispatchImage(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -160,7 +159,6 @@
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             
-            // 裁切頂部 22% 區塊 (Booking for ...)
             const cropH = img.height * 0.22;
             canvas.width = img.width;
             canvas.height = cropH;
@@ -210,7 +208,7 @@
         
         profileMap[key].allVisits.push(g);
 
-        const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (5 * 24 * 60 * 60 * 1000) : 0);
+        const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + ((g.stayDays || 5) * 24 * 60 * 60 * 1000) : 0);
         const isAutoArchived = (g.status === 'completed' || g.housekeepingStatus === 'closed' || (depTime > 0 && nowTs > depTime && !g.isDepartureUncertain));
 
         const tripPoints = parseInt(g.points || 0, 10) || 0;
@@ -268,10 +266,11 @@
 
       const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
       let depTime = g.departure ? new Date(g.departure).getTime() : 0;
+      const stayDays = parseInt(g.stayDays, 10) || 5;
 
       if (g.isDepartureUncertain || !depTime) {
         if (arrTime > 0) {
-          depTime = arrTime + (5 * 24 * 60 * 60 * 1000);
+          depTime = arrTime + (stayDays * 24 * 60 * 60 * 1000);
         } else {
           return 'normal';
         }
@@ -305,7 +304,8 @@
 
       let activeRosterList = guestList.filter(g => {
         if (g.status === 'completed' || g.housekeepingStatus === 'closed' || g.status === 'cancelled') return false;
-        const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (5 * 24 * 60 * 60 * 1000) : 0);
+        const stayDays = parseInt(g.stayDays, 10) || 5;
+        const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (stayDays * 24 * 60 * 60 * 1000) : 0);
         if (!g.isDepartureUncertain && depTime > 0 && nowTs > depTime) return false;
         return true;
       });
@@ -321,9 +321,10 @@
 
       guestList.forEach(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
+        const stayDays = parseInt(g.stayDays, 10) || 5;
         let depTime = g.departure ? new Date(g.departure).getTime() : 0;
         if (g.isDepartureUncertain || !depTime) {
-          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+          depTime = arrTime > 0 ? arrTime + (stayDays * 24 * 60 * 60 * 1000) : 0;
         }
 
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
@@ -398,9 +399,10 @@
 
       let filtered = activeList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
+        const stayDays = parseInt(g.stayDays, 10) || 5;
         let depTime = g.departure ? new Date(g.departure).getTime() : 0;
         if (g.isDepartureUncertain || !depTime) {
-          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+          depTime = arrTime > 0 ? arrTime + (stayDays * 24 * 60 * 60 * 1000) : 0;
         }
 
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
@@ -456,8 +458,10 @@
       filtered.sort((a, b) => {
         const aArr = a.arrival ? new Date(a.arrival).getTime() : 0;
         const bArr = b.arrival ? new Date(b.arrival).getTime() : 0;
-        const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
-        const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
+        const aDays = parseInt(a.stayDays, 10) || 5;
+        const bDays = parseInt(b.stayDays, 10) || 5;
+        const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (aDays * 24 * 60 * 60 * 1000) : Infinity);
+        const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (bDays * 24 * 60 * 60 * 1000) : Infinity);
 
         if (rosterFilter === 'todayArr' || unifiedFilter === '24h_arrival') return aArr - bArr;
         if (rosterFilter === 'todayDep') return aDep - bDep;
@@ -468,7 +472,7 @@
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表（支援派車單 OCR 英文名核對）
+    // 6. 渲染即時營運行程總表
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -505,13 +509,14 @@
           clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
         }
 
+        const stayDays = parseInt(g.stayDays, 10) || (g.isDepartureUncertain ? 5 : 1);
         const departureText = g.isDepartureUncertain 
-          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定5天)</span>` 
+          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定${stayDays}天)</span>` 
           : (g.departure ? g.departure.replace('T', ' ') : '-');
 
         const stayDaysText = g.isDepartureUncertain 
-          ? '暫定 5 晚' 
-          : `${g.stayDays || 1} 晚`;
+          ? `暫定 ${stayDays} 晚` 
+          : `${stayDays} 晚`;
 
         const formattedArrivalFlight = formatFlightWithAirline(g.airline);
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
@@ -521,7 +526,7 @@
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
           : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
 
-        // 派車單核驗狀態標籤
+        // 派車單核驗按鈕
         const dispatchVerifyBadge = g.dispatchVerified
           ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 text-[10px] font-bold">✓ 派車單已核驗</span>`
           : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">🚕 派車單核對</button>`;
@@ -591,15 +596,16 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板
+    // 7. 渲染房務警戒看板（即時連動最新天數與剩餘小時）
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
       let activeStayGuests = guestList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
+        const stayDays = parseInt(g.stayDays, 10) || 5;
         let depTime = g.departure ? new Date(g.departure).getTime() : 0;
         if (g.isDepartureUncertain || !depTime) {
-          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+          depTime = arrTime > 0 ? arrTime + (stayDays * 24 * 60 * 60 * 1000) : 0;
         }
 
         const level = getHousekeepingAlertLevel(g, nowTs);
@@ -620,23 +626,26 @@
       activeStayGuests.sort((a, b) => {
         const aArr = a.arrival ? new Date(a.arrival).getTime() : 0;
         const bArr = b.arrival ? new Date(b.arrival).getTime() : 0;
-        const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
-        const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (5 * 24 * 60 * 60 * 1000) : Infinity);
+        const aDays = parseInt(a.stayDays, 10) || 5;
+        const bDays = parseInt(b.stayDays, 10) || 5;
+        const aDep = a.departure ? new Date(a.departure).getTime() : (a.arrival ? aArr + (aDays * 24 * 60 * 60 * 1000) : Infinity);
+        const bDep = b.departure ? new Date(b.departure).getTime() : (b.arrival ? bArr + (bDays * 24 * 60 * 60 * 1000) : Infinity);
         return aDep - bDep;
       });
 
       container.innerHTML = activeStayGuests.map(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
+        const stayDays = parseInt(g.stayDays, 10) || 5;
         let depTime = g.departure ? new Date(g.departure).getTime() : 0;
         if (g.isDepartureUncertain || !depTime) {
-          depTime = arrTime > 0 ? arrTime + (5 * 24 * 60 * 60 * 1000) : 0;
+          depTime = arrTime > 0 ? arrTime + (stayDays * 24 * 60 * 60 * 1000) : 0;
         }
 
         const level = getHousekeepingAlertLevel(g, nowTs);
         const timeLeftHours = depTime ? Math.max(0, (depTime - nowTs) / (1000 * 60 * 60)) : 0;
-        const nightsRemaining = Math.ceil(timeLeftHours / 24);
+        const nightsRemaining = Math.max(0, Math.ceil(timeLeftHours / 24));
         
-        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">正常住宿中 ${g.isDepartureUncertain ? '(暫定5天 / 剩 ' + nightsRemaining + ' 晚)' : `(剩 ${nightsRemaining} 晚)`}</span>`;
+        let badge = `<span class="bg-neutral-800 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">正常住宿中 ${g.isDepartureUncertain ? `(暫定${stayDays}天 / 剩 ${nightsRemaining} 晚)` : `(剩 ${nightsRemaining} 晚)`}</span>`;
         let cardBorder = "border-neutral-800";
 
         if (level === 'alert24') {
@@ -657,7 +666,7 @@
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other' };
 
         const departureText = g.isDepartureUncertain 
-          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定5天: ${new Date(depTime).toISOString().split('T')[0]})</span>` 
+          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定: ${new Date(depTime).toISOString().split('T')[0]})</span>` 
           : (g.departure ? g.departure.split('T')[0] : '-');
 
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
@@ -680,7 +689,7 @@
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
                 <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${departureText}</span></div>
                 <div>回程航班: <span class="text-neutral-200 font-mono">${formattedReturnFlight}</span></div>
-                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.isDepartureUncertain ? '暫定 5 晚' : (g.stayDays || 1) + ' 晚'}</span> ${timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
+                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.isDepartureUncertain ? `暫定 ${stayDays} 晚` : `${stayDays} 晚`}</span> ${timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
                 <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
                 ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1 font-medium">📌 客戶需求: ${g.note}</div>` : ''}
               </div>
@@ -691,7 +700,7 @@
                 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="openExtendModal('${g.id}', ${g.isDepartureUncertain ? 5 : (g.stayDays || 1)})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
+                <button onclick="openExtendModal('${g.id}', ${stayDays})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
                   + 續住加訂
                 </button>
                 <button onclick="closeStayCase('${g.id}')" class="py-2 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-xl transition">
@@ -884,6 +893,7 @@
         const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
 
         const p = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客' };
+        const stayDays = parseInt(g.stayDays, 10) || (g.isDepartureUncertain ? 5 : 1);
 
         return [
           `"${(g.memberId || '').replace(/"/g, '""')}"`,
@@ -901,8 +911,8 @@
           `"${(formatFlightWithAirline(g.airline) || '').replace(/"/g, '""')}"`,
           `"${(g.arrival || '').replace('T', ' ')}"`,
           `"${g.isDepartureUncertain ? '尚未確定' : (formatFlightWithAirline(g.returnAirline) || '').replace(/"/g, '""')}"`,
-          `"${g.isDepartureUncertain ? '尚未確定 (暫定5天)' : (g.departure || '').replace('T', ' ')}"`,
-          `"${g.isDepartureUncertain ? '暫定5晚' : (g.stayDays || 1)}"`,
+          `"${g.isDepartureUncertain ? `尚未確定 (暫定${stayDays}天)` : (g.departure || '').replace('T', ' ')}"`,
+          `"${g.isDepartureUncertain ? `暫定${stayDays}晚` : stayDays}"`,
           `"${(g.staff || '').replace(/"/g, '""')}"`,
           `"${g.status || 'pending'}"`,
           `"${(g.note || '').replace(/"/g, '""')}"`
@@ -1009,7 +1019,6 @@
       const guest = allGuests[dispatchTargetGuestId];
       if (!guest) return;
 
-      // 顯示辨識中載入畫面
       dispatchLoadingOverlay.classList.remove("hidden");
 
       try {
@@ -1017,16 +1026,13 @@
         const worker = await getOcrWorker();
         const { data: { text } } = await worker.recognize(croppedImg);
 
-        // 從辨識出的文字解析姓名 (例：從 "Booking for 800182715 WU KUAN LUN/POKER/2PAX" 中提取)
         let rawOcrText = text.replace(/\n/g, ' ').toUpperCase();
         let extractedName = "";
 
-        // 規則 1: 尋找數字之後、斜線 / 之前的字串
         const matchSlash = rawOcrText.match(/[0-9]{5,12}\s+([A-Z\s]+)\//);
         if (matchSlash && matchSlash[1]) {
           extractedName = matchSlash[1].trim();
         } else {
-          // 規則 2: 尋找 Booking for 之後的英文字母
           const matchBooking = rawOcrText.match(/FOR\s+([0-9]*\s*)([A-Z\s]+)/);
           if (matchBooking && matchBooking[2]) {
             extractedName = matchBooking[2].split('/')[0].trim();
@@ -1040,7 +1046,6 @@
 
         const isExactMatch = (cleanExtracted.length > 0 && cleanRegistered.length > 0) && (cleanExtracted === cleanRegistered || cleanExtracted.includes(cleanRegistered) || cleanRegistered.includes(cleanExtracted));
 
-        // 填入彈窗內容
         document.getElementById("dispatchOcrRaw").innerText = extractedName || '(未辨識出英文姓名)';
         document.getElementById("dispatchRegisteredName").innerText = guest.englishName || '(系統未填寫英文名)';
 
@@ -1050,7 +1055,6 @@
           document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
           document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與系統登記之旅客英文姓名完全一致！";
           
-          // 自動更新資料庫驗證標記
           update(ref(db, `guests/${dispatchTargetGuestId}`), { dispatchVerified: true });
         } else {
           document.getElementById("dispatchResultIcon").innerHTML = "⚠️";
@@ -1072,7 +1076,7 @@
       dispatchTargetGuestId = null;
     };
 
-    // 12. 編輯 / 歷史紀錄 Drawer 彈窗
+    // 12. 編輯 / 歷史紀錄 Drawer 彈窗（支援晚數與離開時間雙向自動連動校準）
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
 
@@ -1108,7 +1112,7 @@
       document.getElementById("editReturnAirline").value = g.returnAirline || '';
       document.getElementById("editDeparture").value = g.departure || '';
       document.getElementById("editDepartureUncertain").checked = !!g.isDepartureUncertain;
-      document.getElementById("editStayDays").value = g.isDepartureUncertain ? 5 : (g.stayDays || 1);
+      document.getElementById("editStayDays").value = g.stayDays || (g.isDepartureUncertain ? 5 : 1);
       document.getElementById("editStaff").value = g.staff || '';
       document.getElementById("editStatus").value = g.status || 'pending';
       document.getElementById("editPoints").value = g.points || 0;
@@ -1141,7 +1145,7 @@
               <span class="text-red-400 font-bold font-mono text-[10px] uppercase">${v.status || 'pending'}</span>
             </div>
             <div class="text-neutral-400 flex items-center justify-between text-[11px]">
-              <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.isDepartureUncertain ? '暫定5晚' : (v.stayDays || 1) + '晚'}</span>
+              <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.isDepartureUncertain ? '暫定' : ''}${v.stayDays || 1}晚</span>
               ${v.id === id ? '<span class="text-red-400 text-[10px] font-bold">當前編輯中</span>' : `<button onclick="openEditDrawer('${v.id}')" class="text-[10px] text-neutral-400 underline hover:text-white">切換編輯</button>`}
             </div>
             ${v.note ? `<div class="text-amber-400/80 text-[10px]">需求: ${v.note}</div>` : ''}
@@ -1175,6 +1179,34 @@
       document.getElementById("toggleHistoryBtn").innerText = `展開行程明細 (預約 ${profile.upcomingVisits.length} / 歷史 ${profile.historyVisits.length})`;
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
+
+    // 抽屜內修改「停留晚數」時，自動推算「離開時間」
+    document.getElementById("editStayDays").addEventListener("input", (e) => {
+      const days = parseInt(e.target.value, 10);
+      const arrVal = document.getElementById("editArrival").value;
+      const isUncertain = document.getElementById("editDepartureUncertain").checked;
+      
+      if (!isUncertain && arrVal && !isNaN(days) && days > 0) {
+        const arrDate = new Date(arrVal);
+        arrDate.setDate(arrDate.getDate() + days);
+        const pad = (n) => String(n).padStart(2, '0');
+        document.getElementById("editDeparture").value = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T${pad(arrDate.getHours())}:${pad(arrDate.getMinutes())}`;
+      }
+    });
+
+    // 抽屜內修改「離開時間」時，自動更新「停留晚數」
+    document.getElementById("editDeparture").addEventListener("change", (e) => {
+      const depVal = e.target.value;
+      const arrVal = document.getElementById("editArrival").value;
+      if (arrVal && depVal) {
+        const d1 = new Date(arrVal);
+        const d2 = new Date(depVal);
+        const diffDays = Math.ceil((d2 - d1) / (1000 * 60 * 60 * 24));
+        if (diffDays > 0) {
+          document.getElementById("editStayDays").value = diffDays;
+        }
+      }
+    });
 
     window.openDrawerPassportPhoto = () => {
       if (editingGuestId) viewPassportPhoto(editingGuestId);
@@ -1225,15 +1257,23 @@
 
       const isUncertain = document.getElementById("editDepartureUncertain").checked;
       const arrVal = document.getElementById("editArrival").value;
-      const depVal = document.getElementById("editDeparture").value;
-      
-      let stayDaysCalculated = parseInt(document.getElementById("editStayDays").value, 10) || 1;
+      let depVal = document.getElementById("editDeparture").value;
+      let stayDaysInput = parseInt(document.getElementById("editStayDays").value, 10) || 1;
+
+      // 若未指定離境時間，預設依填寫晚數（或5天）
       if (isUncertain) {
-        stayDaysCalculated = 5;
-      } else if (arrVal && depVal) {
-        const d1 = new Date(arrVal);
-        const d2 = new Date(depVal);
-        stayDaysCalculated = Math.ceil(Math.abs(d2 - d1) / (1000 * 60 * 60 * 24)) || stayDaysCalculated;
+        depVal = "";
+      } else if (arrVal && stayDaysInput > 0) {
+        // 如果手動改了天數，但沒手動選具體起飛分鐘，自動校正離開時間至該天數
+        const arrDate = new Date(arrVal);
+        arrDate.setDate(arrDate.getDate() + stayDaysInput);
+        const pad = (n) => String(n).padStart(2, '0');
+        const autoDepStr = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T${pad(arrDate.getHours())}:${pad(arrDate.getMinutes())}`;
+        
+        // 如果 depVal 為空或計算差額不符，以專員輸入的 stayDays 為準更新 depVal
+        if (!depVal) {
+          depVal = autoDepStr;
+        }
       }
 
       const updatedData = {
@@ -1251,7 +1291,7 @@
         returnAirline: isUncertain ? "" : document.getElementById("editReturnAirline").value.trim().toUpperCase(),
         departure: isUncertain ? "" : depVal,
         isDepartureUncertain: isUncertain,
-        stayDays: stayDaysCalculated,
+        stayDays: stayDaysInput,
         staff: document.getElementById("editStaff").value.trim(),
         status: document.getElementById("editStatus").value,
         points: parseInt(document.getElementById("editPoints").value, 10) || 0,
@@ -1260,7 +1300,7 @@
 
       update(ref(db, `guests/${editingGuestId}`), updatedData).then(() => {
         closeEditDrawer();
-        alert("資料已成功全面更新！");
+        alert("資料已成功全面更新！天數與警戒狀態已即時重新計算。");
       }).catch(err => {
         alert("儲存失敗: " + err.message);
       });
@@ -1868,7 +1908,7 @@
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
-            <label class="block text-neutral-400 mb-1">停留晚數</label>
+            <label class="block text-neutral-400 mb-1">停留晚數 <span class="text-neutral-500">(修改自動連動起飛)</span></label>
             <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
