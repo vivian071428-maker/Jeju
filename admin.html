@@ -600,17 +600,55 @@
       }).join("");
     }
 
+    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（Excel 級多條件與邏輯運算子篩選）
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
       const filterType = document.getElementById("crmFilterType").value;
+      const logicOp = document.getElementById("crmLogicOp").value; // 'AND' | 'OR'
+      const metricFilter = document.getElementById("crmMetricFilter").value;
+      const sortBy = document.getElementById("crmSortBy").value;
 
       let list = Object.values(profileMap);
+      const nowTs = Date.now();
 
-      if (filterType !== 'all') {
-        list = list.filter(p => p.clientType === filterType);
-      }
+      // 複合邏輯篩選
+      list = list.filter(p => {
+        const g = p.mainGuest || {};
 
+        // 條件 A: 客群分級 (長期 / 短期 / 新客)
+        const matchTier = (filterType === 'all') ? true : (p.clientType === filterType);
+
+        // 條件 B: 經營培養維度快篩
+        let matchMetric = true;
+        if (metricFilter === 'high_points') {
+          matchMetric = p.totalPoints >= 100;
+        } else if (metricFilter === 'frequent') {
+          matchMetric = p.allVisits.length >= 2;
+        } else if (metricFilter === 'referred') {
+          matchMetric = !!(g.referrer && g.referrer.trim() !== '無');
+        } else if (metricFilter === 'sleeping') {
+          const lastVisitTs = p.allVisits[0]?.arrival ? new Date(p.allVisits[0].arrival).getTime() : 0;
+          matchMetric = lastVisitTs > 0 && (nowTs - lastVisitTs > (30 * 24 * 60 * 60 * 1000));
+        } else if (metricFilter === 'upcoming') {
+          matchMetric = p.upcomingVisits.length > 0;
+        }
+
+        // 判斷 且 (AND) 或是 (OR)
+        if (filterType === 'all' && metricFilter === 'all') {
+          return true;
+        }
+        if (logicOp === 'AND') {
+          return matchTier && matchMetric;
+        } else {
+          // OR 模式：若其中一項為 all 則依另一項為主，若皆有選則命中任一即顯示
+          if (filterType === 'all') return matchMetric;
+          if (metricFilter === 'all') return matchTier;
+          return matchTier || matchMetric;
+        }
+      });
+
+      // 關鍵字搜尋
       if (searchVal) {
         list = list.filter(p => {
           const g = p.mainGuest || {};
@@ -624,7 +662,25 @@
         });
       }
 
-      list.sort((a, b) => b.totalPoints - a.totalPoints);
+      // 多維排序
+      list.sort((a, b) => {
+        if (sortBy === 'points_desc') return b.totalPoints - a.totalPoints;
+        if (sortBy === 'points_asc') return a.totalPoints - b.totalPoints;
+        if (sortBy === 'visits_desc') return b.allVisits.length - a.allVisits.length;
+        if (sortBy === 'visits_asc') return a.allVisits.length - b.allVisits.length;
+        if (sortBy === 'date_desc') {
+          const tsA = a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0;
+          const tsB = b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0;
+          return tsB - tsA;
+        }
+        if (sortBy === 'date_asc') {
+          const tsA = a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0;
+          const tsB = b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0;
+          return tsA - tsB;
+        }
+        return b.totalPoints - a.totalPoints;
+      });
+
       document.getElementById("crmTotalCount").innerText = list.length;
 
       if (list.length === 0) {
@@ -885,8 +941,14 @@
       editingGuestId = null;
     };
 
-    window.saveGuestDetails = () => {
+    // 支援點擊儲存或按 Enter 鍵後跳出 confirm 彈窗確認完成修改
+    window.saveGuestDetails = (fromEnterKey = false) => {
       if (!editingGuestId) return;
+
+      if (fromEnterKey) {
+        const ok = confirm("確認要儲存此旅客的修改資料嗎？");
+        if (!ok) return;
+      }
 
       const isUncertain = document.getElementById("editDepartureUncertain").checked;
       const arrVal = document.getElementById("editArrival").value;
@@ -930,6 +992,14 @@
         alert("儲存失敗: " + err.message);
       });
     };
+
+    // 抽屜內按 Enter 鍵快速儲存監聽
+    document.getElementById("editDrawerModal").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        saveGuestDetails(true);
+      }
+    });
 
     // 11. 房務操作與續訂
     window.deleteGuest = (id) => {
@@ -995,23 +1065,39 @@
       });
     };
 
-    // 12. 側邊抽屜（Sidebar）開關與分頁切換
+    // 12. 側邊欄抽屜（Sidebar）開關（支援電腦版收合展開 與 手機版遮罩抽屜）
+    let isDesktopSidebarOpen = true;
+
     window.toggleSidebar = () => {
       const sidebar = document.getElementById("sidebarNav");
       const overlay = document.getElementById("sidebarOverlay");
-      if (sidebar.classList.contains("-translate-x-full")) {
-        sidebar.classList.remove("-translate-x-full");
-        overlay.classList.remove("hidden");
+      const mainContent = document.getElementById("mainContentArea");
+
+      if (window.innerWidth >= 1024) {
+        // 電腦版 (Desktop) 收合/展開
+        isDesktopSidebarOpen = !isDesktopSidebarOpen;
+        if (isDesktopSidebarOpen) {
+          sidebar.classList.remove("-translate-x-full");
+          mainContent.classList.add("lg:ml-64");
+        } else {
+          sidebar.classList.add("-translate-x-full");
+          mainContent.classList.remove("lg:ml-64");
+        }
       } else {
-        sidebar.classList.add("-translate-x-full");
-        overlay.classList.add("hidden");
+        // 手機/平板端 (Mobile) 抽屜開關
+        if (sidebar.classList.contains("-translate-x-full")) {
+          sidebar.classList.remove("-translate-x-full");
+          overlay.classList.remove("hidden");
+        } else {
+          sidebar.classList.add("-translate-x-full");
+          overlay.classList.add("hidden");
+        }
       }
     };
 
     window.switchTab = (tab) => {
       activeTab = tab;
       
-      // 自動在手機端點選後收合側邊欄
       const sidebar = document.getElementById("sidebarNav");
       const overlay = document.getElementById("sidebarOverlay");
       if (window.innerWidth < 1024) {
@@ -1026,7 +1112,7 @@
       document.getElementById("rosterStatsGrid").classList.add("hidden");
       document.getElementById("housekeepingStatsGrid").classList.add("hidden");
 
-      const defaultNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-850 flex items-center gap-3 transition";
+      const defaultNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition";
       const activeNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition";
 
       document.getElementById("navRosterBtn").className = defaultNavClass;
@@ -1071,8 +1157,12 @@
     document.getElementById("searchInput").addEventListener("input", renderDashboard);
     referrerInput.addEventListener("input", renderDashboard);
 
+    // CRM 多維篩選器聯動
     document.getElementById("crmSearchInput").addEventListener("input", renderDashboard);
     document.getElementById("crmFilterType").addEventListener("change", renderDashboard);
+    document.getElementById("crmLogicOp").addEventListener("change", renderDashboard);
+    document.getElementById("crmMetricFilter").addEventListener("change", renderDashboard);
+    document.getElementById("crmSortBy").addEventListener("change", renderDashboard);
   </script>
   <style>
     input[type="date"],
@@ -1104,11 +1194,11 @@
     </div>
   </div>
 
-  <!-- 側邊欄抽屜遮罩（手機/平板端點選背景收合） -->
+  <!-- 側邊欄抽屜遮罩（手機端點選背景收合） -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
-  <!-- 側邊抽屜導航欄 (Sidebar Drawer) -->
-  <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 -translate-x-full lg:translate-x-0 backdrop-blur-md shadow-2xl">
+  <!-- 側邊抽屜導航欄 (Sidebar Drawer - 支援電腦收合與手機彈出) -->
+  <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
       
       <!-- 系統 Logo 與標題 -->
@@ -1120,7 +1210,7 @@
             <div class="text-[10px] text-neutral-400">濟州島行程與房務管理</div>
           </div>
         </div>
-        <button onclick="toggleSidebar()" class="lg:hidden text-neutral-400 hover:text-white p-1 font-bold">✕</button>
+        <button onclick="toggleSidebar()" class="text-neutral-400 hover:text-white p-1 font-bold">✕</button>
       </div>
 
       <!-- 導航菜單 -->
@@ -1149,14 +1239,14 @@
     </div>
   </aside>
 
-  <!-- 主內容區塊 (右側自適應排版) -->
-  <main class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5">
+  <!-- 主內容區塊 (動態響應側邊欄寬度) -->
+  <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300">
     
-    <!-- 頂部 Header（含三條橫槓漢堡選單按鈕） -->
+    <!-- 頂部 Header（漢堡按鈕支援電腦收合與展開） -->
     <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
       <div class="flex items-center gap-3">
-        <!-- 漢堡選單按鈕 (三條槓) -->
-        <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="切換分頁導航選單">
+        <!-- 漢堡選單按鈕 (三條橫槓) -->
+        <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
           <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
           <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
           <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
@@ -1249,22 +1339,70 @@
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
     </div>
 
-    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖 -->
+    <!-- 分頁 3: 貴賓 CRM 客戶庫視圖（Excel 級多維複合篩選器） -->
     <div id="crmView" class="hidden space-y-3">
-      <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between shadow-md">
-        <div class="flex items-center gap-2">
-          <h3 class="text-xs font-bold text-white">所有貴賓客戶總覽</h3>
-          <span class="text-[11px] text-neutral-400">(共 <b id="crmTotalCount" class="text-amber-400">0</b> 位歸戶客戶)</span>
+      <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
+        
+        <!-- 頂部搜尋與數量 -->
+        <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between border-b border-neutral-800 pb-3">
+          <div class="flex items-center gap-2">
+            <h3 class="text-xs font-bold text-white">所有貴賓客戶名冊</h3>
+            <span class="text-[11px] text-neutral-400">(共篩選出 <b id="crmTotalCount" class="text-amber-400 font-mono">0</b> 位貴賓)</span>
+          </div>
+          <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
         </div>
-        <div class="flex flex-col sm:flex-row gap-2">
-          <input id="crmSearchInput" placeholder="搜尋客戶姓名、護照、身分證、LINE..." class="px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
-          <select id="crmFilterType" class="px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
-            <option value="all">全部客群分級</option>
-            <option value="long">長期客戶</option>
-            <option value="short">短期客戶</option>
-            <option value="other">新客/單次</option>
-          </select>
+
+        <!-- Excel 級多條件與邏輯運算子篩選列 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-center text-xs">
+          
+          <!-- 條件 1: 客群分級 -->
+          <div>
+            <label class="block text-[11px] text-neutral-400 font-medium mb-1">客群分類</label>
+            <select id="crmFilterType" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
+              <option value="all">全部客群分級</option>
+              <option value="long">長期客戶</option>
+              <option value="short">短期客戶</option>
+              <option value="other">新客/單次</option>
+            </select>
+          </div>
+
+          <!-- 邏輯運算子 (AND / OR) -->
+          <div>
+            <label class="block text-[11px] text-neutral-400 font-medium mb-1">條件邏輯 (AND / OR)</label>
+            <select id="crmLogicOp" class="w-full px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-red-400 font-bold outline-none focus:border-red-500 transition">
+              <option value="AND">且 (AND - 同時符合)</option>
+              <option value="OR">或 (OR - 命中任一)</option>
+            </select>
+          </div>
+
+          <!-- 條件 2: 經營培養維度快篩 -->
+          <div>
+            <label class="block text-[11px] text-neutral-400 font-medium mb-1">經營培養維度快篩</label>
+            <select id="crmMetricFilter" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
+              <option value="all">不限經營維度</option>
+              <option value="high_points">💎 高價值大戶 (總積分 ≥ 100)</option>
+              <option value="frequent">🔥 高頻常客 (來訪 ≥ 2 次)</option>
+              <option value="referred">🤝 轉介紹客戶 (有推薦人)</option>
+              <option value="sleeping">💤 沉睡客戶 (逾 30 天未訪)</option>
+              <option value="upcoming">✈️ 近期活躍中 (有未來預約)</option>
+            </select>
+          </div>
+
+          <!-- 排序方式 (積分 / 來訪次數 / 來訪時間) -->
+          <div>
+            <label class="block text-[11px] text-neutral-400 font-medium mb-1">數據排序方式</label>
+            <select id="crmSortBy" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-amber-400 font-medium outline-none focus:border-red-500 transition">
+              <option value="points_desc">累積總積分 (高至低)</option>
+              <option value="points_asc">累積總積分 (低至高)</option>
+              <option value="visits_desc">歷史來訪次數 (多至少)</option>
+              <option value="visits_asc">歷史來訪次數 (少至多)</option>
+              <option value="date_desc">最新來訪時間 (新至舊)</option>
+              <option value="date_asc">最新來訪時間 (舊至新)</option>
+            </select>
+          </div>
+
         </div>
+
       </div>
 
       <div id="crmContainer" class="space-y-3"></div>
@@ -1415,7 +1553,7 @@
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeEditDrawer()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
-        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">儲存變更</button>
+        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">儲存變更 (Enter)</button>
       </div>
     </div>
   </div>
