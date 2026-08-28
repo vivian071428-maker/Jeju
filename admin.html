@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>濟州島行程與房務管理後台</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
@@ -32,6 +33,19 @@
     let housekeepingFilter = 'all'; 
     let unmaskedIds = new Set();
     const ADMIN_PIN = "8888";
+
+    // OCR Worker 初始化
+    let ocrWorker = null;
+    async function getOcrWorker() {
+      if (!ocrWorker) {
+        ocrWorker = await Tesseract.createWorker('eng');
+        await ocrWorker.setParameters({
+          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /-:,',
+          tessedit_pageseg_mode: '6'
+        });
+      }
+      return ocrWorker;
+    }
 
     // 1. PIN 驗證（按 Enter 鍵解鎖）
     const authOverlay = document.getElementById("authOverlay");
@@ -99,7 +113,6 @@
       return first + rest;
     }
 
-    // 智能等比例縮圖壓縮
     function compressImageForStorage(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -130,6 +143,42 @@
 
             const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.65);
             resolve(compressedDataUrl);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // 派車截圖頂部區域裁切與二值化
+    function preprocessDispatchImage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // 裁切頂部 22% 區塊 (Booking for ...)
+            const cropH = img.height * 0.22;
+            canvas.width = img.width;
+            canvas.height = cropH;
+
+            ctx.drawImage(img, 0, 0, img.width, cropH, 0, 0, img.width, cropH);
+
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+
+            for (let i = 0; i < data.length; i += 4) {
+              const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+              const binary = gray < 140 ? 0 : 255;
+              data[i] = binary;
+              data[i + 1] = binary;
+              data[i + 2] = binary;
+            }
+            ctx.putImageData(imgData, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
           };
           img.src = e.target.result;
         };
@@ -419,7 +468,7 @@
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表（姓名列移除 VIP 標籤）
+    // 6. 渲染即時營運行程總表（支援派車單 OCR 英文名核對）
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
@@ -472,6 +521,11 @@
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
           : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
 
+        // 派車單核驗狀態標籤
+        const dispatchVerifyBadge = g.dispatchVerified
+          ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 text-[10px] font-bold">✓ 派車單已核驗</span>`
+          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">🚕 派車單核對</button>`;
+
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
@@ -484,6 +538,7 @@
                 <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 修改</span>
               </button>
               <div class="flex items-center gap-2">
+                ${dispatchVerifyBadge}
                 ${passportPhotoBtn}
                 ${statusBadge}
               </div>
@@ -536,7 +591,7 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板（姓名列移除 VIP 標籤）
+    // 7. 渲染房務警戒看板
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -649,7 +704,7 @@
       }).join("");
     }
 
-    // 8. 渲染分頁 3：貴賓 CRM 客戶庫（姓名列移除 VIP 標籤）
+    // 8. 渲染分頁 3：貴賓 CRM 客戶庫
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
@@ -903,7 +958,7 @@
       document.getElementById("passportModalImg").src = "";
     };
 
-    // 工作人員補傳護照圖檔
+    // 護照補傳監聽
     let uploadingGuestTargetId = null;
     const adminUploadInput = document.getElementById("adminPassportUploadInput");
 
@@ -928,7 +983,96 @@
       }
     });
 
-    // 11. 編輯 / 歷史紀錄 Drawer 彈窗
+    // 11. 派車單英文姓名 OCR 核驗引擎
+    let dispatchTargetGuestId = null;
+    const dispatchUploadInput = document.getElementById("dispatchUploadInput");
+    const dispatchModal = document.getElementById("dispatchResultModal");
+    const dispatchLoadingOverlay = document.getElementById("dispatchLoadingOverlay");
+
+    window.triggerDispatchVerify = (id) => {
+      dispatchTargetGuestId = id;
+      dispatchUploadInput.value = "";
+      dispatchUploadInput.click();
+    };
+
+    function normalizeNameStr(str) {
+      return (str || '')
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .trim();
+    }
+
+    dispatchUploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file || !dispatchTargetGuestId) return;
+
+      const guest = allGuests[dispatchTargetGuestId];
+      if (!guest) return;
+
+      // 顯示辨識中載入畫面
+      dispatchLoadingOverlay.classList.remove("hidden");
+
+      try {
+        const croppedImg = await preprocessDispatchImage(file);
+        const worker = await getOcrWorker();
+        const { data: { text } } = await worker.recognize(croppedImg);
+
+        // 從辨識出的文字解析姓名 (例：從 "Booking for 800182715 WU KUAN LUN/POKER/2PAX" 中提取)
+        let rawOcrText = text.replace(/\n/g, ' ').toUpperCase();
+        let extractedName = "";
+
+        // 規則 1: 尋找數字之後、斜線 / 之前的字串
+        const matchSlash = rawOcrText.match(/[0-9]{5,12}\s+([A-Z\s]+)\//);
+        if (matchSlash && matchSlash[1]) {
+          extractedName = matchSlash[1].trim();
+        } else {
+          // 規則 2: 尋找 Booking for 之後的英文字母
+          const matchBooking = rawOcrText.match(/FOR\s+([0-9]*\s*)([A-Z\s]+)/);
+          if (matchBooking && matchBooking[2]) {
+            extractedName = matchBooking[2].split('/')[0].trim();
+          } else {
+            extractedName = rawOcrText.replace(/BOOKING|FOR|[0-9/]/g, '').trim();
+          }
+        }
+
+        const cleanExtracted = normalizeNameStr(extractedName);
+        const cleanRegistered = normalizeNameStr(guest.englishName);
+
+        const isExactMatch = (cleanExtracted.length > 0 && cleanRegistered.length > 0) && (cleanExtracted === cleanRegistered || cleanExtracted.includes(cleanRegistered) || cleanRegistered.includes(cleanExtracted));
+
+        // 填入彈窗內容
+        document.getElementById("dispatchOcrRaw").innerText = extractedName || '(未辨識出英文姓名)';
+        document.getElementById("dispatchRegisteredName").innerText = guest.englishName || '(系統未填寫英文名)';
+
+        if (isExactMatch) {
+          document.getElementById("dispatchResultIcon").innerHTML = "✅";
+          document.getElementById("dispatchResultTitle").innerText = "確認正確";
+          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
+          document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與系統登記之旅客英文姓名完全一致！";
+          
+          // 自動更新資料庫驗證標記
+          update(ref(db, `guests/${dispatchTargetGuestId}`), { dispatchVerified: true });
+        } else {
+          document.getElementById("dispatchResultIcon").innerHTML = "⚠️";
+          document.getElementById("dispatchResultTitle").innerText = "異常，請人員再次檢查";
+          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-red-500 animate-pulse";
+          document.getElementById("dispatchResultMsg").innerText = "截圖辨識之英文姓名與登記姓名不符，請核對下方資訊或手動修改。";
+        }
+
+        dispatchModal.classList.remove("hidden");
+      } catch (err) {
+        alert("派車單辨識失敗: " + err.message);
+      } finally {
+        dispatchLoadingOverlay.classList.add("hidden");
+      }
+    });
+
+    window.closeDispatchModal = () => {
+      dispatchModal.classList.add("hidden");
+      dispatchTargetGuestId = null;
+    };
+
+    // 12. 編輯 / 歷史紀錄 Drawer 彈窗
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
 
@@ -1129,7 +1273,7 @@
       }
     });
 
-    // 12. 刪除整位客戶所有關聯資訊（CRM 專用）
+    // 13. 刪除整位客戶所有關聯資訊（CRM 專用）
     window.deleteEntireClient = async (profileKey) => {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const nowTs = Date.now();
@@ -1219,7 +1363,7 @@
       });
     };
 
-    // 13. 側邊欄抽屜（Sidebar）開關
+    // 14. 側邊欄抽屜（Sidebar）開關
     let isDesktopSidebarOpen = true;
 
     window.toggleSidebar = () => {
@@ -1290,7 +1434,7 @@
       }
     };
 
-    // 14. 篩選與搜尋事件
+    // 15. 篩選與搜尋事件
     const unifiedSelect = document.getElementById("unifiedFilterSelect");
     const referrerInputContainer = document.getElementById("referrerInputContainer");
     const referrerInput = document.getElementById("filterReferrerInput");
@@ -1333,8 +1477,16 @@
 
 <body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white flex overflow-x-hidden">
 
-  <!-- 隱藏的工作人員護照補傳專用 Input -->
+  <!-- 隱藏的檔案上傳 Inputs -->
   <input id="adminPassportUploadInput" type="file" accept="image/*" class="hidden" />
+  <input id="dispatchUploadInput" type="file" accept="image/*" class="hidden" />
+
+  <!-- 派車單辨識 Loading 遮罩 -->
+  <div id="dispatchLoadingOverlay" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 z-[80] space-y-3">
+    <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+    <div class="text-sm font-bold text-white">正在解析派車單截圖與核對英文姓名...</div>
+    <div class="text-xs text-neutral-400">系統正在比對頂部預約人資訊</div>
+  </div>
 
   <!-- PIN 驗證遮罩 -->
   <div id="authOverlay" class="fixed inset-0 bg-neutral-950/95 flex items-center justify-center p-4 z-50">
@@ -1355,7 +1507,6 @@
   <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
       
-      <!-- 系統 Logo 與標題 -->
       <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
         <div class="flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
@@ -1367,7 +1518,6 @@
         <button onclick="toggleSidebar()" class="text-neutral-400 hover:text-white p-1 font-bold">✕</button>
       </div>
 
-      <!-- 導航菜單 -->
       <nav class="space-y-1.5">
         <button id="navRosterBtn" onclick="switchTab('roster')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
@@ -1386,7 +1536,6 @@
       </nav>
     </div>
 
-    <!-- 側邊欄底部資訊 -->
     <div class="border-t border-neutral-800 pt-4 text-[10px] text-neutral-500 space-y-1">
       <div>系統狀態: <span class="text-emerald-400 font-medium">即時連線中</span></div>
       <div>數據庫: <span class="text-neutral-400 font-mono">Firebase RTDB</span></div>
@@ -1396,7 +1545,6 @@
   <!-- 主內容區塊 -->
   <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300">
     
-    <!-- 頂部 Header -->
     <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
       <div class="flex items-center gap-3">
         <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
@@ -1555,7 +1703,33 @@
 
   </main>
 
-  <!-- 護照照片最高圖層燈箱 (z-[70]) -->
+  <!-- 派車單英文姓名 OCR 核對結果彈窗 (z-[75]) -->
+  <div id="dispatchResultModal" onclick="if(event.target === this) closeDispatchModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[75]">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative text-center">
+      <div id="dispatchResultIcon" class="text-4xl mx-auto"></div>
+      <div>
+        <h3 id="dispatchResultTitle" class="text-lg font-black text-white"></h3>
+        <p id="dispatchResultMsg" class="text-xs text-neutral-400 mt-1 leading-relaxed"></p>
+      </div>
+
+      <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 space-y-2 text-left text-xs">
+        <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
+          <span class="text-neutral-500">派車截圖辨識姓名:</span>
+          <span id="dispatchOcrRaw" class="text-blue-400 font-mono font-bold text-sm"></span>
+        </div>
+        <div class="flex items-center justify-between pt-1">
+          <span class="text-neutral-500">系統登記護照英文:</span>
+          <span id="dispatchRegisteredName" class="text-white font-mono font-bold text-sm"></span>
+        </div>
+      </div>
+
+      <button onclick="closeDispatchModal()" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl text-xs transition">
+        完成並關閉
+      </button>
+    </div>
+  </div>
+
+  <!-- 護照照片燈箱 (z-[70]) -->
   <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
