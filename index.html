@@ -49,7 +49,6 @@
     const returnBlock = document.getElementById("returnBlock");
     const departureBlock = document.getElementById("departureBlock");
     const departureUncertain = document.getElementById("departureUncertain");
-    const stayDaysInput = document.getElementById("stayDays");
     const noteInput = document.getElementById("note");
     
     const arrivalError = document.getElementById("arrivalError");
@@ -236,7 +235,7 @@
       }
     });
 
-    // 2. 勾選「尚未確定離開時間」切換（連動免填回程班機與起飛時間）
+    // 2. 勾選「尚未確定離開時間」切換（免填回程班機與離開時間）
     departureUncertain.addEventListener("change", (e) => {
       if (e.target.checked) {
         departureInput.value = "";
@@ -292,7 +291,7 @@
       e.target.value = e.target.value.toUpperCase();
     });
 
-    // 3. 送出表單資料
+    // 3. 送出表單資料（自動根據抵達與離開時間推算停留晚數）
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
       const passportVal = passportInput.value.trim();
@@ -300,7 +299,7 @@
 
       let isUncertain = departureUncertain.checked;
       let depValue = isUncertain ? "" : departureInput.value;
-      let stayDaysCount = parseInt(stayDaysInput.value, 10) || 1;
+      let stayDaysCount = 1;
 
       if (!isUncertain && depValue && arrivalInput.value) {
         const arrDate = new Date(arrivalInput.value);
@@ -310,7 +309,7 @@
           departureError.classList.remove("hidden");
           return departureInput.focus();
         }
-        stayDaysCount = Math.ceil(Math.abs(depDate - arrDate) / (1000 * 60 * 60 * 24)) || stayDaysCount;
+        stayDaysCount = Math.ceil(Math.abs(depDate - arrDate) / (1000 * 60 * 60 * 24)) || 1;
       }
 
       submitBtn.innerText = "資料送出中...";
@@ -508,16 +507,10 @@
           <p id="departureError" class="hidden text-xs text-red-400 font-medium"></p>
         </div>
 
-        <!-- 停留天數與特殊需求備註 -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-          <div>
-            <label class="block text-xs font-semibold text-neutral-300 mb-1">預計停留晚數</label>
-            <input id="stayDays" type="number" min="1" max="60" value="3" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 transition" />
-          </div>
-          <div class="sm:col-span-2">
-            <label class="block text-xs font-semibold text-neutral-300 mb-1">特殊需求或行程備註</label>
-            <input id="note" placeholder="例如：加嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 placeholder:text-neutral-600 transition" />
-          </div>
+        <!-- 特殊需求與行程備註 -->
+        <div>
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">特殊需求或行程備註</label>
+          <input id="note" placeholder="例如：加嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 placeholder:text-neutral-600 transition" />
         </div>
 
         <button id="submitBtn" type="submit" class="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-red-950/60 mt-3">
