@@ -208,7 +208,8 @@
         
         profileMap[key].allVisits.push(g);
 
-        const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + ((g.stayDays || 5) * 24 * 60 * 60 * 1000) : 0);
+        const stayDays = parseInt(g.stayDays, 10) || 5;
+        const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (stayDays * 24 * 60 * 60 * 1000) : 0);
         const isAutoArchived = (g.status === 'completed' || g.housekeepingStatus === 'closed' || (depTime > 0 && nowTs > depTime && !g.isDepartureUncertain));
 
         const tripPoints = parseInt(g.points || 0, 10) || 0;
@@ -596,7 +597,7 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板（即時連動最新天數與剩餘小時）
+    // 7. 渲染房務警戒看板
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -1076,7 +1077,7 @@
       dispatchTargetGuestId = null;
     };
 
-    // 12. 編輯 / 歷史紀錄 Drawer 彈窗（支援晚數與離開時間雙向自動連動校準）
+    // 12. 編輯 / 歷史紀錄 Drawer 彈窗（雙向連動：改晚數自動設為凌晨 06:00；改離開時間自動更新晚數）
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
 
@@ -1180,7 +1181,7 @@
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
 
-    // 抽屜內修改「停留晚數」時，自動推算「離開時間」
+    // 雙向連動 1：改停留晚數 -> 同步推算離開日期並設定在該日凌晨 06:00
     document.getElementById("editStayDays").addEventListener("input", (e) => {
       const days = parseInt(e.target.value, 10);
       const arrVal = document.getElementById("editArrival").value;
@@ -1190,11 +1191,12 @@
         const arrDate = new Date(arrVal);
         arrDate.setDate(arrDate.getDate() + days);
         const pad = (n) => String(n).padStart(2, '0');
-        document.getElementById("editDeparture").value = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T${pad(arrDate.getHours())}:${pad(arrDate.getMinutes())}`;
+        // 自動固定為當天凌晨 06:00
+        document.getElementById("editDeparture").value = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T06:00`;
       }
     });
 
-    // 抽屜內修改「離開時間」時，自動更新「停留晚數」
+    // 雙向連動 2：改離開時間 -> 以手動選擇的離開日期時間為主，並自動計算反推停留晚數
     document.getElementById("editDeparture").addEventListener("change", (e) => {
       const depVal = e.target.value;
       const arrVal = document.getElementById("editArrival").value;
@@ -1247,6 +1249,7 @@
       editingGuestId = null;
     };
 
+    // 儲存：永遠以當前輸入框上的 editDeparture 與 editStayDays 為準
     window.saveGuestDetails = (fromEnterKey = false) => {
       if (!editingGuestId) return;
 
@@ -1260,20 +1263,13 @@
       let depVal = document.getElementById("editDeparture").value;
       let stayDaysInput = parseInt(document.getElementById("editStayDays").value, 10) || 1;
 
-      // 若未指定離境時間，預設依填寫晚數（或5天）
       if (isUncertain) {
         depVal = "";
-      } else if (arrVal && stayDaysInput > 0) {
-        // 如果手動改了天數，但沒手動選具體起飛分鐘，自動校正離開時間至該天數
+      } else if (arrVal && !depVal && stayDaysInput > 0) {
         const arrDate = new Date(arrVal);
         arrDate.setDate(arrDate.getDate() + stayDaysInput);
         const pad = (n) => String(n).padStart(2, '0');
-        const autoDepStr = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T${pad(arrDate.getHours())}:${pad(arrDate.getMinutes())}`;
-        
-        // 如果 depVal 為空或計算差額不符，以專員輸入的 stayDays 為準更新 depVal
-        if (!depVal) {
-          depVal = autoDepStr;
-        }
+        depVal = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T06:00`;
       }
 
       const updatedData = {
@@ -1387,7 +1383,8 @@
       baseDate.setDate(baseDate.getDate() + addNights);
       
       const pad = (n) => String(n).padStart(2, '0');
-      const newDepStr = `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}T${pad(baseDate.getHours())}:${pad(baseDate.getMinutes())}`;
+      // 續訂統一將時間設定在當日凌晨 06:00
+      const newDepStr = `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}T06:00`;
 
       update(ref(db, `guests/${currentExtendId}`), {
         departure: newDepStr,
@@ -1908,8 +1905,8 @@
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
-            <label class="block text-neutral-400 mb-1">停留晚數 <span class="text-neutral-500">(修改自動連動起飛)</span></label>
-            <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <label class="block text-neutral-400 mb-1">停留晚數 <span class="text-neutral-500">(雙向連動)</span></label>
+            <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs font-bold font-mono" />
           </div>
           <div>
             <label class="block text-amber-400 font-semibold mb-1">本次發放積分</label>
