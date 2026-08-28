@@ -27,8 +27,9 @@
     const db = getDatabase(app);
 
     let allGuests = {};
-    let activeTab = 'roster'; 
-    let currentFilter = 'all'; // 'all' | 'todayArr' | 'inIsland' | 'todayDep'
+    let activeTab = 'roster'; // 'roster' | 'housekeeping'
+    let rosterFilter = 'all'; // 'all' | 'todayArr' | 'inIsland' | 'todayDep'
+    let housekeepingFilter = 'all'; // 'all' | 'inIsland' | 'care48' | 'alert24'
     let unmaskedIds = new Set();
     const ADMIN_PIN = "8888";
 
@@ -121,7 +122,7 @@
     }
 
     // 房務倒數運算
-    function getHousekeepingAlertLevel(g, now) {
+    function getHousekeepingAlertLevel(g, nowTs) {
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
         return 'closed';
       }
@@ -130,12 +131,12 @@
       const depTime = g.departure ? new Date(g.departure).getTime() : 0;
 
       if (!depTime || g.isDepartureUncertain) return 'normal';
-      if (now > depTime) return 'overdue';
+      if (nowTs > depTime) return 'overdue';
 
-      const hoursUntilArrival = (arrTime - now) / (1000 * 60 * 60);
+      const hoursUntilArrival = (arrTime - nowTs) / (1000 * 60 * 60);
       if (hoursUntilArrival > 48) return 'upcoming';
 
-      const timeLeftHours = (depTime - now) / (1000 * 60 * 60);
+      const timeLeftHours = (depTime - nowTs) / (1000 * 60 * 60);
 
       if (timeLeftHours <= 24) {
         return 'alert24';
@@ -158,10 +159,16 @@
       
       const profileMap = buildClientProfileMap(guestList);
 
+      // 行程總表數據統計
       let totalCount = guestList.length;
       let todayArrCount = 0;
       let inIslandCount = 0;
       let todayDepCount = 0;
+
+      // 房務警戒數據統計
+      let hkInIslandCount = 0;
+      let care48Count = 0;
+      let alert24Count = 0;
 
       guestList.forEach(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
@@ -169,20 +176,31 @@
         const arrDateStr = g.arrival ? g.arrival.split('T')[0] : '';
         const depDateStr = g.departure ? g.departure.split('T')[0] : '';
 
-        // 今日抵達
+        // 行程總表條件
         if (arrDateStr === todayDateStr) todayArrCount++;
-        // 今日離開
         if (depDateStr === todayDateStr && !g.isDepartureUncertain) todayDepCount++;
-        // 在島中
         if (nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime)) {
           inIslandCount++;
+          hkInIslandCount++;
         }
+
+        // 房務警戒條件
+        const level = getHousekeepingAlertLevel(g, nowTs);
+        if (level === 'care48') care48Count++;
+        if (level === 'alert24') alert24Count++;
       });
 
+      // 更新行程總表卡片數值
       document.getElementById("statTotal").innerText = totalCount;
       document.getElementById("statTodayArr").innerText = todayArrCount;
       document.getElementById("statInIsland").innerText = inIslandCount;
       document.getElementById("statTodayDep").innerText = todayDepCount;
+
+      // 更新房務警戒卡片數值
+      document.getElementById("statHkTotal").innerText = totalCount;
+      document.getElementById("statHkInIsland").innerText = hkInIslandCount;
+      document.getElementById("statHkCare48").innerText = care48Count;
+      document.getElementById("statHkAlert24").innerText = alert24Count;
 
       updateCardActiveStyles();
       renderRoster(guestList, nowTs, todayDateStr, profileMap);
@@ -190,16 +208,34 @@
     }
 
     function updateCardActiveStyles() {
-      const cards = {
+      // 行程總表卡片樣式
+      const rosterCards = {
         'all': document.getElementById("cardAll"),
         'todayArr': document.getElementById("cardTodayArr"),
         'inIsland': document.getElementById("cardInIsland"),
         'todayDep': document.getElementById("cardTodayDep")
       };
 
-      Object.entries(cards).forEach(([key, el]) => {
+      Object.entries(rosterCards).forEach(([key, el]) => {
         if (!el) return;
-        if (currentFilter === key) {
+        if (rosterFilter === key) {
+          el.classList.add("ring-2", "ring-red-500", "bg-neutral-800");
+        } else {
+          el.classList.remove("ring-2", "ring-red-500", "bg-neutral-800");
+        }
+      });
+
+      // 房務警戒卡片樣式
+      const hkCards = {
+        'all': document.getElementById("cardHkAll"),
+        'inIsland': document.getElementById("cardHkInIsland"),
+        'care48': document.getElementById("cardHkCare48"),
+        'alert24': document.getElementById("cardHkAlert24")
+      };
+
+      Object.entries(hkCards).forEach(([key, el]) => {
+        if (!el) return;
+        if (housekeepingFilter === key) {
           el.classList.add("ring-2", "ring-red-500", "bg-neutral-800");
         } else {
           el.classList.remove("ring-2", "ring-red-500", "bg-neutral-800");
@@ -207,13 +243,12 @@
       });
     }
 
-    // 5. 取得過濾後名單與動態排序
+    // 5. 取得行程總表過濾後名單
     function getFilteredGuests(guestList, nowTs, todayDateStr, profileMap) {
       const searchVal = document.getElementById("searchInput").value.toLowerCase().trim();
       const unifiedFilter = document.getElementById("unifiedFilterSelect").value;
       const referrerVal = document.getElementById("filterReferrerInput").value.toLowerCase().trim();
 
-      // [A] 卡片與下拉條件過濾
       let filtered = guestList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
         const depTime = g.departure ? new Date(g.departure).getTime() : 0;
@@ -222,10 +257,10 @@
         const key = (g.passport || g.nationalId || g.name || g.id).trim().toUpperCase();
         const cType = profileMap[key]?.clientType || 'other';
 
-        // 頂部卡片過濾
-        if (currentFilter === 'todayArr' && arrDateStr !== todayDateStr) return false;
-        if (currentFilter === 'todayDep' && (depDateStr !== todayDateStr || g.isDepartureUncertain)) return false;
-        if (currentFilter === 'inIsland' && !(nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime))) return false;
+        // 頂部行程卡片過濾
+        if (rosterFilter === 'todayArr' && arrDateStr !== todayDateStr) return false;
+        if (rosterFilter === 'todayDep' && (depDateStr !== todayDateStr || g.isDepartureUncertain)) return false;
+        if (rosterFilter === 'inIsland' && !(nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime))) return false;
 
         // 下拉選單過濾
         if (unifiedFilter === 'long' && cType !== 'long') return false;
@@ -250,7 +285,6 @@
         return true;
       });
 
-      // 通用搜尋框
       filtered = filtered.filter(g => {
         return (g.name || "").toLowerCase().includes(searchVal) ||
                (g.englishName || "").toLowerCase().includes(searchVal) ||
@@ -264,30 +298,24 @@
                (g.note || "").toLowerCase().includes(searchVal);
       });
 
-      // [B] 依情境精準排序
       filtered.sort((a, b) => {
         const aArr = a.arrival ? new Date(a.arrival).getTime() : 0;
         const bArr = b.arrival ? new Date(b.arrival).getTime() : 0;
         const aDep = a.departure ? new Date(a.departure).getTime() : Infinity;
         const bDep = b.departure ? new Date(b.departure).getTime() : Infinity;
 
-        // 今日抵達 或 24小時內抵達：最快即將抵達的排最前（升序）
-        if (currentFilter === 'todayArr' || unifiedFilter === '24h_arrival') {
+        if (rosterFilter === 'todayArr' || unifiedFilter === '24h_arrival') {
           return aArr - bArr;
         }
-        // 今日離開：最快即將離開的排最前（升序）
-        if (currentFilter === 'todayDep') {
+        if (rosterFilter === 'todayDep') {
           return aDep - bDep;
         }
-        // 在島中：依照離退房時間最接近者排在最前（升序）
-        if (currentFilter === 'inIsland') {
+        if (rosterFilter === 'inIsland') {
           return aDep - bDep;
         }
-        // 預設：最新建立的在最前
         return (b.createdAt || bArr) - (a.createdAt || aArr);
       });
 
-      // 客群去重模式
       if (['long', 'short', 'other'].includes(unifiedFilter)) {
         const seenKeys = new Set();
         const uniqueFiltered = [];
@@ -349,8 +377,6 @@
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
-            
-            <!-- 頂部：姓名與標籤（左），狀態標籤永不折行（右） -->
             <div class="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
               <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5 flex-wrap min-w-0">
                 <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
@@ -411,7 +437,7 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板
+    // 7. 渲染房務警戒看板（支援專屬房務卡片快篩）
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -421,13 +447,26 @@
         const level = getHousekeepingAlertLevel(g, nowTs);
 
         if (level === 'closed') return false;
+
+        // 房務頂部卡片過濾
+        if (housekeepingFilter === 'inIsland' && !(nowTs >= arrTime && (g.isDepartureUncertain || !depTime || nowTs <= depTime))) return false;
+        if (housekeepingFilter === 'care48' && level !== 'care48') return false;
+        if (housekeepingFilter === 'alert24' && level !== 'alert24') return false;
+
         return true;
       });
 
       if (activeStayGuests.length === 0) {
-        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無待處理的房務或警戒名單。</div>`;
+        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無符合條件的房務或警戒名單。</div>`;
         return;
       }
+
+      // 依最接近離開退房時間升序排列
+      activeStayGuests.sort((a, b) => {
+        const aDep = a.departure ? new Date(a.departure).getTime() : Infinity;
+        const bDep = b.departure ? new Date(b.departure).getTime() : Infinity;
+        return aDep - bDep;
+      });
 
       container.innerHTML = activeStayGuests.map(g => {
         const level = getHousekeepingAlertLevel(g, nowTs);
@@ -550,15 +589,20 @@
 
       const dateStr = new Date().toISOString().split('T')[0];
       link.setAttribute("href", url);
-      link.setAttribute("download", `濟州島旅客名單_${currentFilter}_${dateStr}.csv`);
+      link.setAttribute("download", `濟州島旅客名單_${dateStr}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
     };
 
-    // 9. 篩選切換
-    window.setCardFilter = (type) => {
-      currentFilter = (currentFilter === type) ? 'all' : type;
+    // 9. 頂部卡片篩選切換
+    window.setRosterFilter = (type) => {
+      rosterFilter = (rosterFilter === type) ? 'all' : type;
+      renderDashboard();
+    };
+
+    window.setHousekeepingFilter = (type) => {
+      housekeepingFilter = (housekeepingFilter === type) ? 'all' : type;
       renderDashboard();
     };
 
@@ -765,11 +809,15 @@
       if (tab === 'roster') {
         document.getElementById("rosterView").classList.remove("hidden");
         document.getElementById("housekeepingView").classList.add("hidden");
+        document.getElementById("rosterStatsGrid").classList.remove("hidden");
+        document.getElementById("housekeepingStatsGrid").classList.add("hidden");
         document.getElementById("tabRosterBtn").className = "flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md";
         document.getElementById("tabHousekeepingBtn").className = "flex-1 sm:flex-initial px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl";
       } else {
         document.getElementById("rosterView").classList.add("hidden");
         document.getElementById("housekeepingView").classList.remove("hidden");
+        document.getElementById("rosterStatsGrid").classList.add("hidden");
+        document.getElementById("housekeepingStatsGrid").classList.remove("hidden");
         document.getElementById("tabHousekeepingBtn").className = "flex-1 sm:flex-initial px-4 py-2 text-xs font-bold text-white bg-red-600 rounded-xl shadow-md";
         document.getElementById("tabRosterBtn").className = "flex-1 sm:flex-initial px-4 py-2 text-xs font-medium text-neutral-400 hover:text-white rounded-xl";
       }
@@ -846,33 +894,44 @@
       </div>
     </div>
 
-    <!-- 頂部營運數據卡片（重構為：總登記、今日抵達、在島中、今日離開） -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
-      
-      <!-- 1. 總登記旅客數 -->
-      <div id="cardAll" onclick="setCardFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
+    <!-- [分頁 1 專用卡片] 旅客行程總表營運數據卡片 -->
+    <div id="rosterStatsGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+      <div id="cardAll" onclick="setRosterFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
         <div id="statTotal" class="text-xl sm:text-2xl font-black text-white mt-1 font-mono">0</div>
       </div>
-
-      <!-- 2. 今日抵達 -->
-      <div id="cardTodayArr" onclick="setCardFilter('todayArr')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
+      <div id="cardTodayArr" onclick="setRosterFilter('todayArr')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">今日抵達</div>
         <div id="statTodayArr" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
       </div>
-
-      <!-- 3. 在島中 -->
-      <div id="cardInIsland" onclick="setCardFilter('inIsland')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
+      <div id="cardInIsland" onclick="setRosterFilter('inIsland')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">在島中</div>
         <div id="statInIsland" class="text-xl sm:text-2xl font-black text-blue-400 mt-1 font-mono">0</div>
       </div>
-
-      <!-- 4. 今日離開 -->
-      <div id="cardTodayDep" onclick="setCardFilter('todayDep')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
+      <div id="cardTodayDep" onclick="setRosterFilter('todayDep')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">今日離開</div>
         <div id="statTodayDep" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
       </div>
+    </div>
 
+    <!-- [分頁 2 專用卡片] 房務與續訂警戒專用數據卡片 -->
+    <div id="housekeepingStatsGrid" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+      <div id="cardHkAll" onclick="setHousekeepingFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
+        <div class="text-[11px] text-neutral-400 font-medium">總登記旅客數</div>
+        <div id="statHkTotal" class="text-xl sm:text-2xl font-black text-white mt-1 font-mono">0</div>
+      </div>
+      <div id="cardHkInIsland" onclick="setHousekeepingFilter('inIsland')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
+        <div class="text-[11px] text-neutral-400 font-medium">在島住宿中</div>
+        <div id="statHkInIsland" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
+      </div>
+      <div id="cardHkCare48" onclick="setHousekeepingFilter('care48')" class="cursor-pointer bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 transition hover:border-amber-800">
+        <div class="text-[11px] text-amber-400 font-medium">倒數第 2 晚關懷名單</div>
+        <div id="statHkCare48" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
+      </div>
+      <div id="cardHkAlert24" onclick="setHousekeepingFilter('alert24')" class="cursor-pointer bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-2xl p-3.5 transition hover:border-red-800">
+        <div class="text-[11px] text-red-400 font-medium">倒數第 1 晚訂房警戒</div>
+        <div id="statHkAlert24" class="text-xl sm:text-2xl font-black text-red-500 mt-1 font-mono">0</div>
+      </div>
     </div>
 
     <!-- 分頁 1: 旅客總表視圖 -->
