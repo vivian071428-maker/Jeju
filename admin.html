@@ -241,11 +241,15 @@
         if (!btn) return;
         const currentTarget = btnId.replace('nav', '').replace('Btn', '').toLowerCase();
         if (currentTarget === tab) {
-          btn.className = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition";
+          btn.className = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center justify-between transition";
         } else {
-          btn.className = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition";
+          btn.className = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-between transition";
         }
       });
+
+      if (tab === 'tasks') {
+        clearTaskNotifications();
+      }
 
       if (window.innerWidth < 1024) {
         const sidebar = document.getElementById("sidebarNav");
@@ -384,6 +388,7 @@
       const tasksRef = ref(db, "tasks");
       onValue(tasksRef, (snapshot) => {
         allTasks = snapshot.val() || {};
+        updateTaskNotificationBadge();
         renderTasksView();
       });
     }
@@ -1540,10 +1545,11 @@
         });
       }
     };
-window.copyLineCareText = (name, staff, dep, nights) => {
-  const msg = `您好 ${name} ，我是濟州接待專員 ${staff}。提醒您預計退房時間為${dep.split('T')[0]}。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時告知我們喔！`;
-  navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
-};
+
+    window.copyLineCareText = (name, staff, dep, nights) => {
+      const msg = `您好 ${name} ，我是濟州接待專員 ${staff}。提醒您預計退房時間為 ${dep.split('T')[0]}。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時告知我們喔！`;
+      navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
+    };
 
     // 護照與車單
     const adminPassportUploadInput = document.getElementById("adminPassportUploadInput");
@@ -1724,8 +1730,67 @@ window.copyLineCareText = (name, staff, dep, nights) => {
     };
 
     // ==========================================
-    // 任務派遣模組
+    // 任務派遣與通知紅點模組
     // ==========================================
+    function getTaskNotificationCount() {
+      if (!currentUser) return 0;
+      const list = Object.values(allTasks);
+      let count = 0;
+
+      if (currentUser.role === 'admin') {
+        // 管理員：專員已回傳更新但管理員尚未確認結案 (hasAdminUnread)
+        count = list.filter(t => t.status !== 'closed' && t.hasAdminUnread).length;
+      } else {
+        // 員工：指派給自己且尚未標記已讀 (hasStaffUnread)
+        const myName = (currentUser.name || '').trim().toLowerCase();
+        count = list.filter(t => t.status !== 'closed' && (t.assignee || '').trim().toLowerCase() === myName && t.hasStaffUnread).length;
+      }
+      return count;
+    }
+
+    function updateTaskNotificationBadge() {
+      const count = getTaskNotificationCount();
+      const navBadge = document.getElementById("navTasksBadge");
+      const burgerBadge = document.getElementById("burgerTaskBadge");
+
+      if (count > 0) {
+        if (navBadge) {
+          navBadge.innerText = count > 99 ? '99+' : count;
+          navBadge.classList.remove("hidden");
+        }
+        if (burgerBadge) {
+          burgerBadge.innerText = count > 99 ? '99+' : count;
+          burgerBadge.classList.remove("hidden");
+        }
+      } else {
+        if (navBadge) navBadge.classList.add("hidden");
+        if (burgerBadge) burgerBadge.classList.add("hidden");
+      }
+    }
+
+    async function clearTaskNotifications() {
+      if (!currentUser) return;
+      const list = Object.entries(allTasks);
+      const updates = {};
+
+      if (currentUser.role === 'admin') {
+        list.forEach(([id, t]) => {
+          if (t.hasAdminUnread) updates[`tasks/${id}/hasAdminUnread`] = false;
+        });
+      } else {
+        const myName = (currentUser.name || '').trim().toLowerCase();
+        list.forEach(([id, t]) => {
+          if ((t.assignee || '').trim().toLowerCase() === myName && t.hasStaffUnread) {
+            updates[`tasks/${id}/hasStaffUnread`] = false;
+          }
+        });
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await update(ref(db), updates);
+      }
+    }
+
     window.openCreateTaskModal = () => {
       if (currentUser?.role !== 'admin') return;
       document.getElementById("taskTitleInput").value = "";
@@ -1758,6 +1823,8 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         status: 'pending',
         feedback: '',
         creator: currentUser.name,
+        hasStaffUnread: true,
+        hasAdminUnread: false,
         createdAt: Date.now()
       });
 
@@ -1765,6 +1832,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       window.closeCreateTaskModal();
     };
 
+    // 員工回傳進度 (即使選已完成也不會真正 closed，須待管理員結案)
     window.submitTaskFeedback = async (taskId) => {
       const statusSelect = document.getElementById(`taskStatusSelect_${taskId}`);
       const feedbackInput = document.getElementById(`taskFeedbackInput_${taskId}`);
@@ -1776,11 +1844,27 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       await update(ref(db, `tasks/${taskId}`), {
         status: newStatus,
         feedback: newFeedback,
+        hasAdminUnread: true,
         updatedAt: Date.now(),
         updatedBy: currentUser.name
       });
 
-      alert("進度與說明已成功回傳！");
+      alert(newStatus === 'completed_pending_review' ? "已回報完成！請靜候管理員核定結案。" : "進度與說明已成功回傳！");
+    };
+
+    // 管理員專屬：確認結案關閉該任務
+    window.adminCloseTask = async (taskId) => {
+      if (currentUser?.role !== 'admin') return;
+      if (confirm("確認核准此任務並【正式結案歸檔】嗎？")) {
+        await update(ref(db, `tasks/${taskId}`), {
+          status: 'closed',
+          hasAdminUnread: false,
+          hasStaffUnread: false,
+          closedAt: Date.now(),
+          closedBy: currentUser.name
+        });
+        alert("該任務已正式結案並歸檔！");
+      }
     };
 
     window.deleteTask = async (taskId) => {
@@ -1794,11 +1878,11 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       if (!container) return;
       let list = Object.entries(allTasks).map(([id, d]) => ({ id, ...d }));
 
-      if (taskFilter === 'active') list = list.filter(t => t.status !== 'completed');
-      if (taskFilter === 'closed') list = list.filter(t => t.status === 'completed');
+      if (taskFilter === 'active') list = list.filter(t => t.status !== 'closed');
+      if (taskFilter === 'closed') list = list.filter(t => t.status === 'closed');
 
       if (list.length === 0) {
-        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無任何派遣任務。</div>`;
+        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無任何符合條件之派遣任務。</div>`;
         return;
       }
 
@@ -1806,20 +1890,26 @@ window.copyLineCareText = (name, staff, dep, nights) => {
 
       container.innerHTML = list.map(t => {
         const formattedDueDate = t.dueDate ? t.dueDate.replace('T', ' ') : '-';
+        const isClosed = (t.status === 'closed');
         
         const statusMap = {
           'pending': '待處理',
           'processing': '處理中',
-          'completed': '已完成'
+          'completed_pending_review': '專員已完成 (待結案)',
+          'closed': '已結案'
         };
-        const statusText = statusMap[t.status] || '待處理';
+        const statusText = statusMap[t.status] || '處理中';
+
+        let badgeBg = "bg-neutral-800 text-neutral-300";
+        if (t.status === 'completed_pending_review') badgeBg = "bg-emerald-950 text-emerald-300 border border-emerald-800/80";
+        if (t.status === 'closed') badgeBg = "bg-neutral-900 text-neutral-500 border border-neutral-800";
 
         return `
           <div class="bg-[#121212] border border-neutral-800 rounded-3xl p-5 space-y-4 shadow-xl">
             
             <div class="flex items-start justify-between gap-2">
               <div>
-                <h4 class="text-base font-bold text-white tracking-tight leading-snug">${t.title || '無標題'}</h4>
+                <h4 class="text-base font-bold text-white tracking-tight leading-snug ${isClosed ? 'line-through text-neutral-500' : ''}">${t.title || '無標題'}</h4>
                 <div class="text-xs text-neutral-400 mt-1 flex items-center gap-1.5 flex-wrap">
                   <span>負責人: <b class="text-red-400">${t.assignee || '未指派'}</b></span>
                   <span class="text-neutral-600">|</span>
@@ -1827,7 +1917,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
                 </div>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="px-2.5 py-1 rounded-lg text-xs font-medium bg-neutral-800 text-neutral-300">
+                <span class="px-2.5 py-1 rounded-lg text-xs font-medium ${badgeBg}">
                   ${statusText}
                 </span>
                 ${isAdmin ? `
@@ -1847,26 +1937,51 @@ window.copyLineCareText = (name, staff, dep, nights) => {
               <span class="text-amber-400 font-mono font-bold ml-1">${formattedDueDate}</span>
             </div>
 
-            <div class="border-t border-neutral-800/80 pt-3.5 space-y-3">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-                <div>
-                  <label class="block text-neutral-400 text-[11px] mb-1">更新任務狀態</label>
-                  <select id="taskStatusSelect_${t.id}" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
-                    <option value="pending" ${t.status === 'pending' ? 'selected' : ''}>待處理</option>
-                    <option value="processing" ${t.status === 'processing' ? 'selected' : ''}>處理中</option>
-                    <option value="completed" ${t.status === 'completed' ? 'selected' : ''}>已完成</option>
-                  </select>
+            ${isAdmin ? `
+              <!-- 管理員視角：專員最新回報情況 + 結案按鈕 -->
+              <div class="border-t border-neutral-800/80 pt-3.5 space-y-3">
+                <div class="bg-neutral-950/90 border border-neutral-800 rounded-2xl p-3 text-xs space-y-1">
+                  <div class="text-[11px] text-neutral-500 font-medium">專員最新回報說明：</div>
+                  <div class="text-neutral-200 font-medium">${t.feedback || '尚未填寫進度說明'}</div>
                 </div>
-                <div>
-                  <label class="block text-neutral-400 text-[11px] mb-1">狀況說明填寫</label>
-                  <input id="taskFeedbackInput_${t.id}" value="${t.feedback || ''}" placeholder="例：前往中、已辦妥" class="w-full px-3 py-2 bg-neutral-900 border border-red-900/60 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
-                </div>
-              </div>
 
-              <button onclick="submitTaskFeedback('${t.id}')" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 active:scale-[0.99] text-neutral-200 hover:text-white text-xs font-bold rounded-xl transition">
-                回傳進度
-              </button>
-            </div>
+                ${!isClosed ? `
+                  <button onclick="adminCloseTask('${t.id}')" class="w-full py-2.5 bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white text-xs font-bold rounded-xl transition shadow-lg shadow-red-950">
+                    ✓ 確認結案歸檔
+                  </button>
+                ` : `
+                  <div class="text-center py-2 text-neutral-500 text-xs font-semibold bg-neutral-900 rounded-xl border border-neutral-800">此案件已由管理員結案</div>
+                `}
+              </div>
+            ` : `
+              <!-- 員工視角：填寫進度並回傳 -->
+              ${!isClosed ? `
+                <div class="border-t border-neutral-800/80 pt-3.5 space-y-3">
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                    <div>
+                      <label class="block text-neutral-400 text-[11px] mb-1">更新任務狀態</label>
+                      <select id="taskStatusSelect_${t.id}" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
+                        <option value="pending" ${t.status === 'pending' ? 'selected' : ''}>待處理</option>
+                        <option value="processing" ${t.status === 'processing' ? 'selected' : ''}>處理中</option>
+                        <option value="completed_pending_review" ${t.status === 'completed_pending_review' ? 'selected' : ''}>已完成 (送審結案)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-neutral-400 text-[11px] mb-1">狀況說明填寫</label>
+                      <input id="taskFeedbackInput_${t.id}" value="${t.feedback || ''}" placeholder="例：塞車 在路上、已辦妥" class="w-full px-3 py-2 bg-neutral-900 border border-red-900/60 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+                    </div>
+                  </div>
+
+                  <button onclick="submitTaskFeedback('${t.id}')" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 active:scale-[0.99] text-neutral-200 hover:text-white text-xs font-bold rounded-xl transition">
+                    回傳進度
+                  </button>
+                </div>
+              ` : `
+                <div class="border-t border-neutral-800/80 pt-3 text-center py-2 text-neutral-500 text-xs font-semibold bg-neutral-900 rounded-xl border border-neutral-800">
+                  此案件已結案
+                </div>
+              `}
+            `}
 
           </div>
         `;
@@ -1874,7 +1989,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
     }
 
     // ==========================================
-    // 報表與營運分析（全量精準未補齊檢測）
+    // 報表與營運分析
     // ==========================================
     function initAnalyticsDates() {
       const now = new Date();
@@ -1953,7 +2068,6 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       const guestList = Object.entries(allGuests).map(([id, d]) => ({ id, ...d })).filter(g => g.status !== 'merged');
       const profileMap = buildClientProfileMap(guestList, Date.now());
 
-      // 1. 針對所有【活躍/進行中未結案/未取消】的客戶，進行全量待辦檢查
       let allActivePendingDispatch = [];
       let allActiveIncompleteList = [];
 
@@ -1977,7 +2091,6 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         }
       });
 
-      // 2. 依日期區間過濾 KPI 與走勢圖
       const filtered = guestList.filter(g => {
         const dateStr = g.arrival ? g.arrival.split('T')[0] : '';
         if (!dateStr) return true;
@@ -2023,7 +2136,6 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         utmMap[normalizedUtm] = (utmMap[normalizedUtm] || 0) + 1;
       });
 
-      // 6 大 KPI 渲染
       document.getElementById("kpiTotalGuests").innerText = filtered.length;
       document.getElementById("kpiAvgStay").innerText = filtered.length ? (totalStay / filtered.length).toFixed(1) : 0;
       document.getElementById("kpiVipCount").innerText = vipCount;
@@ -2031,7 +2143,6 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       document.getElementById("kpiIncompleteData").innerText = allActiveIncompleteList.length;
       document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
 
-      // 專員榜渲染
       const staffBox = document.getElementById("staffLeaderboardContainer");
       if (staffBox) {
         const staffEntries = Object.entries(staffPointsMap).sort((a, b) => b[1] - a[1]);
@@ -2051,7 +2162,6 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         }
       }
 
-      // 作戰待辦表格 1: 等待上傳車單
       const pendingDispatchBody = document.getElementById("actionPendingDispatchBody");
       if (pendingDispatchBody) {
         if (allActivePendingDispatch.length === 0) {
@@ -2071,7 +2181,6 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         }
       }
 
-      // 作戰待辦表格 2: 未補齊資料客戶名單
       const incompleteBody = document.getElementById("actionIncompleteBody");
       if (incompleteBody) {
         if (allActiveIncompleteList.length === 0) {
@@ -2090,7 +2199,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         }
       }
 
-      // Chart 1: 到訪走勢圖 (強制整數刻度)
+      // Chart 1
       const trendCtx = document.getElementById("chartTrend")?.getContext("2d");
       if (trendCtx) {
         const sortedDates = Object.keys(trendMap).sort();
@@ -2118,12 +2227,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
             scales: {
               x: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' } },
               y: { 
-                ticks: { 
-                  color: '#737373', 
-                  font: { size: 10 },
-                  precision: 0,
-                  stepSize: 1
-                }, 
+                ticks: { color: '#737373', font: { size: 10 }, precision: 0, stepSize: 1 }, 
                 grid: { color: '#262626' }, 
                 beginAtZero: true 
               }
@@ -2132,7 +2236,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         });
       }
 
-      // Chart 2: 分級圓餅圖 (新客使用藍色 #3b82f6)
+      // Chart 2
       const tierCtx = document.getElementById("chartTier")?.getContext("2d");
       if (tierCtx) {
         if (chartTierInstance) chartTierInstance.destroy();
@@ -2157,7 +2261,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
         });
       }
 
-      // Chart 3: UTM 來源圖 (5 大來源，Y 軸強制整數刻度)
+      // Chart 3
       const utmCtx = document.getElementById("chartUtm")?.getContext("2d");
       if (utmCtx) {
         const utmLabels = Object.keys(utmMap);
@@ -2181,12 +2285,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
             scales: {
               x: { ticks: { color: '#737373', font: { size: 10 } }, grid: { display: false } },
               y: { 
-                ticks: { 
-                  color: '#737373', 
-                  font: { size: 10 },
-                  precision: 0,
-                  stepSize: 1
-                }, 
+                ticks: { color: '#737373', font: { size: 10 }, precision: 0, stepSize: 1 }, 
                 grid: { color: '#262626' }, 
                 beginAtZero: true 
               }
@@ -2284,34 +2383,47 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       </div>
 
       <nav class="space-y-1.5">
-        <button id="navRosterBtn" onclick="switchTab('roster')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-          <span>即時營運行程</span>
+        <button id="navRosterBtn" onclick="switchTab('roster')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center justify-between transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            <span>即時營運行程</span>
+          </div>
         </button>
         
-        <button id="navHousekeepingBtn" onclick="switchTab('housekeeping')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span>房務與續訂警戒</span>
+        <button id="navHousekeepingBtn" onclick="switchTab('housekeeping')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-between transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>房務與續訂警戒</span>
+          </div>
         </button>
 
-        <button id="navCrmBtn" onclick="switchTab('crm')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
-          <span>貴賓 CRM 客戶庫</span>
+        <button id="navCrmBtn" onclick="switchTab('crm')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-between transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            <span>貴賓 CRM 客戶庫</span>
+          </div>
         </button>
 
-        <button id="navTasksBtn" onclick="switchTab('tasks')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
-          <span>任務派遣與回報</span>
+        <button id="navTasksBtn" onclick="switchTab('tasks')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-between transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+            <span>任務派遣與回報</span>
+          </div>
+          <span id="navTasksBadge" class="hidden px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-black min-w-[18px] text-center shadow-md animate-pulse">0</span>
         </button>
 
-        <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-          <span>報表與營運分析</span>
+        <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-between transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            <span>報表與營運分析</span>
+          </div>
         </button>
 
-        <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-          <span>員工與帳號管理</span>
+        <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center justify-between transition">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            <span>員工與帳號管理</span>
+          </div>
         </button>
       </nav>
     </div>
@@ -2336,11 +2448,15 @@ window.copyLineCareText = (name, staff, dep, nights) => {
     
     <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
       <div class="flex items-center gap-3">
-        <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
-          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
-          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
-          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
-        </button>
+        <div class="relative">
+          <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
+            <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+            <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+            <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+          </button>
+          <!-- 漢堡選單上的紅點數字徽章 -->
+          <span id="burgerTaskBadge" class="hidden absolute -top-1.5 -right-1.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-black min-w-[17px] text-center border-2 border-neutral-950 shadow-md animate-pulse">0</span>
+        </div>
         <div>
           <h1 id="currentPageTitle" class="text-lg sm:text-xl font-black text-white tracking-tight">即時營運行程</h1>
           <p class="text-[10px] sm:text-xs text-neutral-400 mt-0.5">即時掌握在島房態、專車接送與會員累積總積分</p>
@@ -2518,7 +2634,7 @@ window.copyLineCareText = (name, staff, dep, nights) => {
       </div>
     </div>
 
-    <!-- 分頁 5: 報表與營運分析（全量未補齊名單） -->
+    <!-- 分頁 5: 報表與營運分析 -->
     <div id="analyticsView" class="hidden space-y-5">
       
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
@@ -2702,17 +2818,17 @@ window.copyLineCareText = (name, staff, dep, nights) => {
           <input id="taskAssigneeInput" placeholder="負責人全名" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-  <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
-  <input 
-    id="taskDueDateInput" 
-    type="datetime-local" 
-    onclick="this.showPicker && this.showPicker()"
-    class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition [color-scheme:dark] cursor-pointer" 
-  />
-</div>
+          <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
+          <input 
+            id="taskDueDateInput" 
+            type="datetime-local" 
+            onclick="this.showPicker && this.showPicker()"
+            class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition [color-scheme:dark] cursor-pointer" 
+          />
+        </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">詳細說明 / 注意事項</label>
-          <textarea id="taskDescInput" rows="3" placeholder="請和他合照一張" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
+          <textarea id="taskDescInput" rows="3" placeholder="請詳細說明任務內容" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
         </div>
       </div>
 
