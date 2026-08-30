@@ -9,7 +9,7 @@
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { getDatabase, ref, onValue, update, remove, get, set, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
@@ -28,13 +28,14 @@
     const db = getDatabase(app);
 
     let allGuests = {};
-    let activeTab = 'roster'; // 'roster' | 'housekeeping' | 'crm'
+    let allUsers = {};
+    let currentUser = null; // 當前登入的使用者資訊
+    let activeTab = 'roster'; // 'roster' | 'housekeeping' | 'crm' | 'users'
     let rosterFilter = 'all'; 
     let housekeepingFilter = 'all'; 
     let unmaskedIds = new Set();
-    const ADMIN_PIN = "8888";
 
-    // OCR Worker 初始化
+    // OCR Worker
     let ocrWorker = null;
     async function getOcrWorker() {
       if (!ocrWorker) {
@@ -47,29 +48,141 @@
       return ocrWorker;
     }
 
-    // 1. PIN 驗證（按 Enter 鍵解鎖）
+    // ==========================================
+    // 1. 使用者登入體系與裝置持久化記憶
+    // ==========================================
     const authOverlay = document.getElementById("authOverlay");
-    const adminPinInput = document.getElementById("adminPin");
-    const pinError = document.getElementById("pinError");
-    const unlockBtn = document.getElementById("unlockBtn");
+    const loginUsernameInput = document.getElementById("loginUsername");
+    const loginPasswordInput = document.getElementById("loginPassword");
+    const loginError = document.getElementById("loginError");
+    const loginBtn = document.getElementById("loginBtn");
 
-    function handleUnlock() {
-      if (adminPinInput.value === ADMIN_PIN) {
-        authOverlay.classList.add("hidden");
-        loadDatabaseListener();
-      } else {
-        pinError.classList.remove("hidden");
-        adminPinInput.value = "";
-        adminPinInput.focus();
+    // 初始化系統管理員預設帳號（若資料庫中無任何使用者）
+    async function ensureSuperAdminExists() {
+      const usersRef = ref(db, "users");
+      const snapshot = await get(usersRef);
+      if (!snapshot.exists()) {
+        const defaultAdmin = {
+          name: "總管理者",
+          email: "admin@jeju.com",
+          username: "admin88",
+          password: "admin88",
+          role: "admin",
+          createdAt: Date.now()
+        };
+        await push(usersRef, defaultAdmin);
       }
     }
 
-    unlockBtn.addEventListener("click", handleUnlock);
-    adminPinInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") handleUnlock();
-    });
+    // 檢查本機裝置是否已有登入 Session
+    async function checkSavedSession() {
+      await ensureSuperAdminExists();
+      const savedUserStr = localStorage.getItem("jeju_auth_user");
+      if (savedUserStr) {
+        try {
+          const userObj = JSON.parse(savedUserStr);
+          // 與資料庫驗證帳號依然有效
+          const usersSnap = await get(ref(db, "users"));
+          const usersData = usersSnap.val() || {};
+          const matchedKey = Object.keys(usersData).find(k => 
+            usersData[k].username.toLowerCase() === userObj.username.toLowerCase() &&
+            usersData[k].password.toLowerCase() === userObj.password.toLowerCase()
+          );
 
-    // 2. 監聽資料庫
+          if (matchedKey) {
+            currentUser = { id: matchedKey, ...usersData[matchedKey] };
+            onLoginSuccess();
+            return;
+          }
+        } catch(e) {
+          localStorage.removeItem("jeju_auth_user");
+        }
+      }
+      authOverlay.classList.remove("hidden");
+    }
+
+    // 帳密格式驗證：英數至少 6 碼
+    function validateAccountFormat(val) {
+      return /^[a-zA-Z0-9]{6,}$/.test(val);
+    }
+
+    // 執行登入
+    async function handleLogin() {
+      const rawUser = loginUsernameInput.value.trim().toLowerCase();
+      const rawPass = loginPasswordInput.value.trim().toLowerCase();
+
+      if (!validateAccountFormat(rawUser) || !validateAccountFormat(rawPass)) {
+        loginError.textContent = "帳號與密碼須為英文字母或數字，且長度至少 6 碼";
+        loginError.classList.remove("hidden");
+        return;
+      }
+
+      loginBtn.innerText = "驗證登入中...";
+      loginBtn.disabled = true;
+
+      try {
+        const usersSnap = await get(ref(db, "users"));
+        const usersData = usersSnap.val() || {};
+        const matchedKey = Object.keys(usersData).find(k => 
+          (usersData[k].username || '').toLowerCase() === rawUser &&
+          (usersData[k].password || '').toLowerCase() === rawPass
+        );
+
+        if (matchedKey) {
+          currentUser = { id: matchedKey, ...usersData[matchedKey] };
+          // 儲存到本機裝置，實現永久免重複登入
+          localStorage.setItem("jeju_auth_user", JSON.stringify({
+            username: rawUser,
+            password: rawPass
+          }));
+          loginError.classList.add("hidden");
+          onLoginSuccess();
+        } else {
+          loginError.textContent = "帳號或密碼錯誤，請重新輸入";
+          loginError.classList.remove("hidden");
+        }
+      } catch (err) {
+        loginError.textContent = "連線失敗: " + err.message;
+        loginError.classList.remove("hidden");
+      } finally {
+        loginBtn.innerText = "登入並記住此裝置";
+        loginBtn.disabled = false;
+      }
+    }
+
+    function onLoginSuccess() {
+      authOverlay.classList.add("hidden");
+      document.getElementById("currentLoggedUserDisplay").innerText = `${currentUser.name} (${currentUser.role === 'admin' ? '管理員' : '接待專員'})`;
+      
+      // 管理員顯示員工管理導航
+      if (currentUser.role === 'admin') {
+        document.getElementById("navUsersBtn").classList.remove("hidden");
+      } else {
+        document.getElementById("navUsersBtn").classList.add("hidden");
+      }
+
+      loadDatabaseListener();
+      loadUsersListener();
+    }
+
+    // 登出功能
+    window.logoutAccount = () => {
+      if (confirm("確定要登出系統嗎？（登出後在此裝置需重新輸入帳密）")) {
+        localStorage.removeItem("jeju_auth_user");
+        location.reload();
+      }
+    };
+
+    loginBtn.addEventListener("click", handleLogin);
+    loginUsernameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
+    loginPasswordInput.addEventListener("keydown", (e) => { if (e.key === "Enter") handleLogin(); });
+
+    // 初始化檢查登入
+    checkSavedSession();
+
+    // ==========================================
+    // 2. 監聽資料庫（旅客名單 + 員工帳號名單）
+    // ==========================================
     function loadDatabaseListener() {
       const guestsRef = ref(db, "guests");
       onValue(guestsRef, (snapshot) => {
@@ -78,6 +191,118 @@
       });
     }
 
+    function loadUsersListener() {
+      const usersRef = ref(db, "users");
+      onValue(usersRef, (snapshot) => {
+        allUsers = snapshot.val() || {};
+        renderUsersList();
+      });
+    }
+
+    // ==========================================
+    // 3. 員工帳號管理模組（新增、編輯、刪除）
+    // ==========================================
+    window.openAddUserModal = () => {
+      document.getElementById("newUserName").value = "";
+      document.getElementById("newUserEmail").value = "";
+      document.getElementById("newUserUsername").value = "";
+      document.getElementById("newUserPassword").value = "";
+      document.getElementById("newUserRole").value = "staff";
+      document.getElementById("userModalError").classList.add("hidden");
+      document.getElementById("userModal").classList.remove("hidden");
+    };
+
+    window.closeUserModal = () => {
+      document.getElementById("userModal").classList.add("hidden");
+    };
+
+    window.saveNewUser = async () => {
+      const name = document.getElementById("newUserName").value.trim();
+      const email = document.getElementById("newUserEmail").value.trim().toLowerCase();
+      const username = document.getElementById("newUserUsername").value.trim().toLowerCase();
+      const password = document.getElementById("newUserPassword").value.trim().toLowerCase();
+      const role = document.getElementById("newUserRole").value;
+      const errorEl = document.getElementById("userModalError");
+
+      if (!name || !email) {
+        errorEl.textContent = "請填寫員工真實姓名與 Google 帳號 (Email)";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      if (!validateAccountFormat(username) || !validateAccountFormat(password)) {
+        errorEl.textContent = "自訂帳號與密碼須為英數字組合，且至少 6 碼";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      // 檢查帳號是否重複
+      const isDuplicate = Object.values(allUsers).some(u => (u.username || '').toLowerCase() === username);
+      if (isDuplicate) {
+        errorEl.textContent = "此登入帳號已被使用，請更換其他帳號";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        await push(ref(db, "users"), {
+          name,
+          email,
+          username,
+          password,
+          role,
+          createdAt: Date.now()
+        });
+        alert(`員工帳號【${name}】建立成功！\n帳號: ${username}\n密碼: ${password}`);
+        closeUserModal();
+      } catch (err) {
+        errorEl.textContent = "建立失敗: " + err.message;
+        errorEl.classList.remove("hidden");
+      }
+    };
+
+    window.deleteUser = async (userId, userName) => {
+      if (Object.keys(allUsers).length <= 1) {
+        alert("系統必須保留至少一位管理員帳號！");
+        return;
+      }
+      if (confirm(`確定要刪除員工帳號【${userName}】嗎？刪除後該員工將無法再登入系統。`)) {
+        await remove(ref(db, `users/${userId}`));
+      }
+    };
+
+    function renderUsersList() {
+      const container = document.getElementById("usersTableBody");
+      const list = Object.entries(allUsers).map(([id, data]) => ({ id, ...data }));
+
+      if (list.length === 0) {
+        container.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-neutral-500 text-xs">尚未建立任何員工帳號。</td></tr>`;
+        return;
+      }
+
+      container.innerHTML = list.map(u => `
+        <tr class="border-b border-neutral-800 hover:bg-neutral-900/60 text-xs">
+          <td class="py-3 px-3.5 font-bold text-white">${u.name || '-'}</td>
+          <td class="py-3 px-3.5 font-mono text-neutral-300">${u.email || '-'}</td>
+          <td class="py-3 px-3.5 font-mono text-red-400 font-bold">${u.username || '-'}</td>
+          <td class="py-3 px-3.5 font-mono text-neutral-400">••••••</td>
+          <td class="py-3 px-3.5">
+            ${u.role === 'admin' 
+              ? `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-red-400 text-[10px] font-bold">總管理員</span>` 
+              : `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] font-medium">接待專員</span>`}
+          </td>
+          <td class="py-3 px-3.5 text-right">
+            ${u.id === currentUser?.id 
+              ? `<span class="text-[10px] text-neutral-500">當前帳號</span>` 
+              : `<button onclick="deleteUser('${u.id}', '${u.name}')" class="px-2.5 py-1 text-neutral-500 hover:text-red-400 rounded transition text-xs font-medium">刪除</button>`}
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    // ==========================================
+    // 4. 工具函數與 CRM 聚合運算
+    // ==========================================
     function maskString(str, visibleChars = 4) {
       if (!str) return '-';
       if (str.length <= visibleChars) return str;
@@ -184,7 +409,6 @@
       });
     }
 
-    // 3. 全局客戶 CRM 聚合引擎
     function buildClientProfileMap(guestList, nowTs) {
       const profileMap = {};
 
@@ -293,7 +517,9 @@
       }
     }
 
-    // 4. 渲染主儀表板
+    // ==========================================
+    // 5. 渲染主儀表板
+    // ==========================================
     function renderDashboard() {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const now = new Date();
@@ -473,13 +699,12 @@
       return filtered;
     }
 
-    // 6. 渲染即時營運行程總表
     function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
 
       if (filtered.length === 0) {
-        container.innerHTML = `<div class="text-center py-12 text-neutral-500 text-xs">目前無正在進行或即將抵達的即時營運名單（歷史行程已自動歸檔至貴賓 CRM 分頁）。</div>`;
+        container.innerHTML = `<div class="text-center py-12 text-neutral-500 text-xs">目前無正在進行或即將抵達的即時營運名單。</div>`;
         return;
       }
 
@@ -515,22 +740,17 @@
           ? `<span class="text-amber-400 font-medium">尚未確定 (暫定${stayDays}天)</span>` 
           : (g.departure ? g.departure.replace('T', ' ') : '-');
 
-        const stayDaysText = g.isDepartureUncertain 
-          ? `暫定 ${stayDays} 晚` 
-          : `${stayDays} 晚`;
-
+        const stayDaysText = g.isDepartureUncertain ? `暫定 ${stayDays} 晚` : `${stayDays} 晚`;
         const formattedArrivalFlight = formatFlightWithAirline(g.airline);
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
-        // 護照照片按鈕
         const passportPhotoBtn = g.passportImage 
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
           : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
 
-        // 派車單核驗按鈕
         const dispatchVerifyBadge = g.dispatchVerified
           ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 text-[10px] font-bold">✓ 派車單已核驗</span>`
-          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">🚕 派車單核對</button>`;
+          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單核對</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
@@ -597,7 +817,6 @@
       }).join("");
     }
 
-    // 7. 渲染房務警戒看板
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
       
@@ -665,7 +884,6 @@
         const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
 
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other' };
-
         const departureText = g.isDepartureUncertain 
           ? `<span class="text-amber-400 font-medium">尚未確定 (暫定: ${new Date(depTime).toISOString().split('T')[0]})</span>` 
           : (g.departure ? g.departure.split('T')[0] : '-');
@@ -714,7 +932,6 @@
       }).join("");
     }
 
-    // 8. 渲染分頁 3：貴賓 CRM 客戶庫
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
@@ -808,7 +1025,7 @@
         }
 
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
           : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
 
         return `
@@ -864,7 +1081,7 @@
       }).join("");
     }
 
-    // 9. 一鍵匯出 CSV
+    // 匯出 CSV
     window.exportToCSV = () => {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const now = new Date();
@@ -952,7 +1169,7 @@
       renderDashboard();
     };
 
-    // 10. 護照照片燈箱預覽
+    // 護照燈箱
     window.viewPassportPhoto = (id) => {
       const g = allGuests[id];
       if (!g || !g.passportImage) {
@@ -969,7 +1186,7 @@
       document.getElementById("passportModalImg").src = "";
     };
 
-    // 護照補傳監聽
+    // 護照補傳
     let uploadingGuestTargetId = null;
     const adminUploadInput = document.getElementById("adminPassportUploadInput");
 
@@ -994,7 +1211,7 @@
       }
     });
 
-    // 11. 派車單英文姓名 OCR 核驗引擎
+    // 派車單 OCR 核對
     let dispatchTargetGuestId = null;
     const dispatchUploadInput = document.getElementById("dispatchUploadInput");
     const dispatchModal = document.getElementById("dispatchResultModal");
@@ -1077,7 +1294,7 @@
       dispatchTargetGuestId = null;
     };
 
-    // 12. 編輯 / 歷史紀錄 Drawer 彈窗（雙向連動：改晚數自動設為凌晨 06:00；改離開時間自動更新晚數）
+    // 編輯 Drawer 彈窗
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
 
@@ -1181,7 +1398,7 @@
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
 
-    // 雙向連動 1：改停留晚數 -> 同步推算離開日期並設定在該日凌晨 06:00
+    // 雙向連動：改停留晚數 -> 同步改離開日期（凌晨 06:00）
     document.getElementById("editStayDays").addEventListener("input", (e) => {
       const days = parseInt(e.target.value, 10);
       const arrVal = document.getElementById("editArrival").value;
@@ -1191,12 +1408,11 @@
         const arrDate = new Date(arrVal);
         arrDate.setDate(arrDate.getDate() + days);
         const pad = (n) => String(n).padStart(2, '0');
-        // 自動固定為當天凌晨 06:00
         document.getElementById("editDeparture").value = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T06:00`;
       }
     });
 
-    // 雙向連動 2：改離開時間 -> 以手動選擇的離開日期時間為主，並自動計算反推停留晚數
+    // 雙向連動：改離開時間 -> 以手動選擇時間為主，自動更新停留晚數
     document.getElementById("editDeparture").addEventListener("change", (e) => {
       const depVal = e.target.value;
       const arrVal = document.getElementById("editArrival").value;
@@ -1249,7 +1465,6 @@
       editingGuestId = null;
     };
 
-    // 儲存：永遠以當前輸入框上的 editDeparture 與 editStayDays 為準
     window.saveGuestDetails = (fromEnterKey = false) => {
       if (!editingGuestId) return;
 
@@ -1309,7 +1524,6 @@
       }
     });
 
-    // 13. 刪除整位客戶所有關聯資訊（CRM 專用）
     window.deleteEntireClient = async (profileKey) => {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
       const nowTs = Date.now();
@@ -1335,7 +1549,6 @@
       }
     };
 
-    // 單筆刪除
     window.deleteGuest = (id) => {
       if (confirm("確定要刪除這筆旅客行程資料嗎？（刪除後無法復原）")) {
         remove(ref(db, `guests/${id}`));
@@ -1381,9 +1594,7 @@
       }
 
       baseDate.setDate(baseDate.getDate() + addNights);
-      
       const pad = (n) => String(n).padStart(2, '0');
-      // 續訂統一將時間設定在當日凌晨 06:00
       const newDepStr = `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}T06:00`;
 
       update(ref(db, `guests/${currentExtendId}`), {
@@ -1400,7 +1611,7 @@
       });
     };
 
-    // 14. 側邊欄抽屜（Sidebar）開關
+    // 側邊欄抽屜
     let isDesktopSidebarOpen = true;
 
     window.toggleSidebar = () => {
@@ -1441,6 +1652,7 @@
       document.getElementById("rosterView").classList.add("hidden");
       document.getElementById("housekeepingView").classList.add("hidden");
       document.getElementById("crmView").classList.add("hidden");
+      document.getElementById("usersView").classList.add("hidden");
 
       document.getElementById("rosterStatsGrid").classList.add("hidden");
       document.getElementById("housekeepingStatsGrid").classList.add("hidden");
@@ -1451,6 +1663,7 @@
       document.getElementById("navRosterBtn").className = defaultNavClass;
       document.getElementById("navHousekeepingBtn").className = defaultNavClass;
       document.getElementById("navCrmBtn").className = defaultNavClass;
+      document.getElementById("navUsersBtn").className = defaultNavClass;
 
       const pageTitle = document.getElementById("currentPageTitle");
 
@@ -1468,10 +1681,14 @@
         document.getElementById("crmView").classList.remove("hidden");
         document.getElementById("navCrmBtn").className = activeNavClass;
         pageTitle.innerText = "貴賓 CRM 客戶庫";
+      } else if (tab === 'users') {
+        document.getElementById("usersView").classList.remove("hidden");
+        document.getElementById("navUsersBtn").className = activeNavClass;
+        pageTitle.innerText = "員工與帳號權限管理";
       }
     };
 
-    // 15. 篩選與搜尋事件
+    // 篩選與搜尋事件
     const unifiedSelect = document.getElementById("unifiedFilterSelect");
     const referrerInputContainer = document.getElementById("referrerInputContainer");
     const referrerInput = document.getElementById("filterReferrerInput");
@@ -1514,36 +1731,56 @@
 
 <body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white flex overflow-x-hidden">
 
-  <!-- 隱藏的檔案上傳 Inputs -->
   <input id="adminPassportUploadInput" type="file" accept="image/*" class="hidden" />
   <input id="dispatchUploadInput" type="file" accept="image/*" class="hidden" />
 
-  <!-- 派車單辨識 Loading 遮罩 -->
+  <!-- 派車單辨識 Loading -->
   <div id="dispatchLoadingOverlay" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 z-[80] space-y-3">
     <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
     <div class="text-sm font-bold text-white">正在解析派車單截圖與核對英文姓名...</div>
     <div class="text-xs text-neutral-400">系統正在比對頂部預約人資訊</div>
   </div>
 
-  <!-- PIN 驗證遮罩 -->
-  <div id="authOverlay" class="fixed inset-0 bg-neutral-950/95 flex items-center justify-center p-4 z-50">
-    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 text-center shadow-2xl">
-      <div class="w-12 h-12 bg-red-950 border border-red-800 text-red-400 rounded-full flex items-center justify-center mx-auto text-xl font-black">🔒</div>
-      <h2 class="text-lg font-bold text-white">管理後台身份驗證</h2>
-      <p class="text-xs text-neutral-400">請輸入管理者 PIN 碼（按 Enter 鍵快速進入）</p>
-      <input id="adminPin" type="password" maxlength="8" placeholder="輸入預設密碼 (8888)" class="w-full text-center tracking-widest text-lg py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl outline-none focus:border-red-500 text-white font-mono" />
-      <p id="pinError" class="hidden text-xs text-red-500">密碼錯誤，請重新輸入</p>
-      <button id="unlockBtn" class="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-red-950">解鎖進入後台</button>
+  <!-- 登入驗證遮罩（帳號密碼登入 + 裝置自動記住） -->
+  <div id="authOverlay" class="hidden fixed inset-0 bg-neutral-950 flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full space-y-5 shadow-2xl relative overflow-hidden">
+      <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 to-rose-600"></div>
+      
+      <div class="text-center space-y-1.5">
+        <div class="w-12 h-12 bg-red-950/80 border border-red-800/80 text-red-400 rounded-2xl flex items-center justify-center mx-auto text-xl font-black shadow-lg shadow-red-950">🔒</div>
+        <h2 class="text-lg font-black text-white tracking-tight pt-1">濟州系統管理後台登入</h2>
+        <p class="text-[11px] text-neutral-400">請輸入管理員發放之專屬登入帳號密碼</p>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">登入帳號</label>
+          <input id="loginUsername" placeholder="請輸入英數字帳號 (預設: admin88)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-white font-mono transition" />
+        </div>
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">登入密碼</label>
+          <input id="loginPassword" type="password" placeholder="請輸入密碼 (預設: admin88)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-white font-mono transition" />
+        </div>
+        <div class="flex items-center gap-1.5 text-[11px] text-neutral-400 pt-1">
+          <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <span>登入後此裝置將自動記住，日後免重複登入</span>
+        </div>
+      </div>
+
+      <p id="loginError" class="hidden text-xs text-red-400 text-center font-medium bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+      
+      <button id="loginBtn" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold rounded-xl text-xs transition shadow-lg shadow-red-950">
+        登入並記住此裝置
+      </button>
     </div>
   </div>
 
   <!-- 側邊欄抽屜遮罩 -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
-  <!-- 側邊抽屜導航欄 (Sidebar Drawer) -->
+  <!-- 側邊抽屜導航欄 -->
   <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
-      
       <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
         <div class="flex items-center gap-2.5">
           <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
@@ -1570,12 +1807,21 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
           <span>貴賓 CRM 客戶庫</span>
         </button>
+
+        <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          <span>👥 員工與帳號管理</span>
+        </button>
       </nav>
     </div>
 
-    <div class="border-t border-neutral-800 pt-4 text-[10px] text-neutral-500 space-y-1">
-      <div>系統狀態: <span class="text-emerald-400 font-medium">即時連線中</span></div>
-      <div>數據庫: <span class="text-neutral-400 font-mono">Firebase RTDB</span></div>
+    <div class="border-t border-neutral-800 pt-4 space-y-3">
+      <div class="text-[11px] text-neutral-400 flex items-center justify-between">
+        <span class="truncate">登入身分: <b id="currentLoggedUserDisplay" class="text-white font-bold">載入中...</b></span>
+      </div>
+      <button onclick="logoutAccount()" class="w-full py-2 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-red-900/60 text-neutral-400 hover:text-red-400 text-xs font-semibold rounded-xl transition">
+        🚪 登出當前裝置
+      </button>
     </div>
   </aside>
 
@@ -1601,7 +1847,7 @@
       </button>
     </div>
 
-    <!-- [分頁 1 專用卡片] 即時營運行程數據卡片 -->
+    <!-- 即時營運行程數據卡片 -->
     <div id="rosterStatsGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setRosterFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">當前進行/即將抵達</div>
@@ -1621,7 +1867,7 @@
       </div>
     </div>
 
-    <!-- [分頁 2 專用卡片] 房務與續訂警戒數據卡片 -->
+    <!-- 房務數據卡片 -->
     <div id="housekeepingStatsGrid" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardHkAll" onclick="setHousekeepingFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記筆數</div>
@@ -1738,9 +1984,87 @@
       <div id="crmContainer" class="space-y-3"></div>
     </div>
 
+    <!-- 分頁 4: 員工與帳號權限管理視圖（管理員專屬） -->
+    <div id="usersView" class="hidden space-y-4">
+      <div class="bg-neutral-900 border border-neutral-800 p-5 rounded-2xl space-y-4 shadow-md">
+        <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <span>👥 團隊員工帳號名冊</span>
+            </h3>
+            <p class="text-[11px] text-neutral-400 mt-0.5">管理員可新增員工 Google 帳號與自訂登入帳密，授權員工登入管理後台。</p>
+          </div>
+          <button onclick="openAddUserModal()" class="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-950">
+            <span>＋ 新增員工帳號</span>
+          </button>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left">
+            <thead>
+              <tr class="border-b border-neutral-800 text-[11px] text-neutral-400 bg-neutral-950/50">
+                <th class="py-2.5 px-3.5">真實姓名</th>
+                <th class="py-2.5 px-3.5">Google 帳號 (Email)</th>
+                <th class="py-2.5 px-3.5">登入帳號</th>
+                <th class="py-2.5 px-3.5">登入密碼</th>
+                <th class="py-2.5 px-3.5">身分角色</th>
+                <th class="py-2.5 px-3.5 text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </main>
 
-  <!-- 派車單英文姓名 OCR 核對結果彈窗 (z-[75]) -->
+  <!-- 新增員工帳號彈窗 -->
+  <div id="userModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+        <h3 class="text-sm font-bold text-white">新增後台員工帳號</h3>
+        <button onclick="closeUserModal()" class="text-neutral-400 hover:text-white font-bold p-1">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">員工真實姓名 *</label>
+          <input id="newUserName" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+        </div>
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">員工 Google 帳號 (Email) *</label>
+          <input id="newUserEmail" placeholder="例：ming.jeju@gmail.com" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+        </div>
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-neutral-300 font-semibold mb-1">自訂登入帳號 * <span class="text-[10px] text-neutral-500">(英數6碼+)</span></label>
+            <input id="newUserUsername" placeholder="例：ming01" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-300 font-semibold mb-1">自訂登入密碼 * <span class="text-[10px] text-neutral-500">(英數6碼+)</span></label>
+            <input id="newUserPassword" placeholder="例：ming888" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          </div>
+        </div>
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">指派身分權限 *</label>
+          <select id="newUserRole" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
+            <option value="staff">接待專員 / 銷售 (日常作業)</option>
+            <option value="admin">總管理者 (全權限)</option>
+          </select>
+        </div>
+      </div>
+
+      <p id="userModalError" class="hidden text-xs text-red-400 bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+
+      <div class="flex gap-2 pt-2 border-t border-neutral-800">
+        <button onclick="closeUserModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
+        <button onclick="saveNewUser()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認建立</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 派車單英文姓名 OCR 核對結果彈窗 -->
   <div id="dispatchResultModal" onclick="if(event.target === this) closeDispatchModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[75]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative text-center">
       <div id="dispatchResultIcon" class="text-4xl mx-auto"></div>
@@ -1766,7 +2090,7 @@
     </div>
   </div>
 
-  <!-- 護照照片燈箱 (z-[70]) -->
+  <!-- 護照照片最高圖層燈箱 -->
   <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -1786,7 +2110,7 @@
     </div>
   </div>
 
-  <!-- 點擊姓名彈出：工作人員全面修改 Drawer 彈窗 (z-50) -->
+  <!-- 編輯 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       
@@ -1851,7 +2175,7 @@
             <input id="editPassport" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">身分證字號 <span class="text-neutral-500 font-normal">(第1碼英文字母自動轉大寫)</span></label>
+            <label class="block text-neutral-400 mb-1">身分證字號</label>
             <input id="editNationalId" maxlength="10" placeholder="例如：A123456789" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs" />
           </div>
         </div>
