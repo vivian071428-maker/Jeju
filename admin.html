@@ -159,15 +159,15 @@
       const navAnalyticsBtn = document.getElementById("navAnalyticsBtn");
       const adminCreateTaskBtn = document.getElementById("adminCreateTaskBtn");
 
-      // 嚴格權限隔離：員工視角徹底移除管理員按鈕
+      // 嚴格權限隔離：非 admin 完全移除按鈕
       if (currentUser.role === 'admin') {
-        navUsersBtn.classList.remove("hidden");
-        navAnalyticsBtn.classList.remove("hidden");
-        if (adminCreateTaskBtn) adminCreateTaskBtn.classList.remove("hidden");
+        navUsersBtn.style.display = "flex";
+        navAnalyticsBtn.style.display = "flex";
+        adminCreateTaskBtn.style.display = "flex";
       } else {
-        navUsersBtn.classList.add("hidden");
-        navAnalyticsBtn.classList.add("hidden");
-        if (adminCreateTaskBtn) adminCreateTaskBtn.classList.add("hidden");
+        navUsersBtn.style.display = "none";
+        navAnalyticsBtn.style.display = "none";
+        adminCreateTaskBtn.style.display = "none";
         if (activeTab === 'analytics' || activeTab === 'users') {
           switchTab('roster');
         }
@@ -356,17 +356,17 @@
       container.innerHTML = list.map(u => {
         const isCurrent = (u.id === currentUser?.id);
         const roleBadge = u.role === 'admin'
-          ? `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800/80 text-red-400 text-[10px] font-bold whitespace-nowrap">總管理員</span>`
-          : `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] font-medium whitespace-nowrap">接待專員</span>`;
+          ? `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800/80 text-red-400 text-[10px] font-bold">總管理員</span>`
+          : `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-300 text-[10px] font-medium">接待專員</span>`;
 
         return `
           <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-md hover:border-neutral-700 transition">
             <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2.5">
-              <div class="flex items-center gap-2 min-w-0">
-                <span class="text-sm font-bold text-white truncate">${u.name || '-'}</span>
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-bold text-white">${u.name || '-'}</span>
                 ${roleBadge}
               </div>
-              <div class="flex-shrink-0">
+              <div>
                 ${isCurrent 
                   ? `<span class="text-[10px] text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded font-medium">目前登入</span>` 
                   : `<button onclick="deleteUser('${u.id}', '${u.name}')" class="px-2.5 py-1 text-neutral-500 hover:text-red-400 text-xs font-semibold transition">刪除帳號</button>`}
@@ -374,13 +374,13 @@
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
-              <div class="truncate">
+              <div>
                 <span class="text-neutral-500">登入帳號:</span>
                 <span class="font-mono text-red-400 font-bold ml-1">${u.username || '-'}</span>
               </div>
-              <div class="truncate">
+              <div>
                 <span class="text-neutral-500">Google Email:</span>
-                <span class="font-mono text-neutral-300 ml-1">${u.email || '-'}</span>
+                <span class="font-mono text-neutral-300 ml-1 truncate block sm:inline">${u.email || '-'}</span>
               </div>
             </div>
           </div>
@@ -394,25 +394,23 @@
       return str.substring(0, visibleChars) + '****';
     }
 
-    function formatFlightWithAirline(flightNo, compact = false) {
+    function formatFlightWithAirline(flightNo) {
       if (!flightNo) return '-';
       const clean = flightNo.trim().toUpperCase();
       const prefix = clean.replace(/[^A-Z0-9]/g, '');
 
       const airlineMap = {
-        'KE': '大韓', 'OZ': '韓亞', '7C': '濟州', 'TW': '德威',
-        'LJ': '真航', 'BX': '釜山', 'RS': '首爾', 'ZE': '易斯達',
-        'CI': '華航', 'BR': '長榮', 'IT': '虎航', 'JX': '星宇',
-        'CX': '國泰', 'UO': '快運', 'HX': '港航', 'MU': '東航',
-        'CZ': '南航', 'CA': '國航', 'HO': '吉祥', '9C': '春秋',
-        'MF': '廈航', 'SC': '山東', 'JL': '日航', 'NH': '全日空',
-        'MM': '樂桃', 'TR': '酷航', 'SQ': '新航'
+        'KE': '大韓航空', 'OZ': '韓亞航空', '7C': '濟州航空', 'TW': '德威航空',
+        'LJ': '真航空', 'BX': '釜山航空', 'RS': '首爾航空', 'ZE': '易斯達航空',
+        'CI': '中華航空', 'BR': '長榮航空', 'IT': '台灣虎航', 'JX': '星宇航空',
+        'CX': '國泰航空', 'UO': '香港快運', 'HX': '香港航空', 'MU': '中國東方航空',
+        'CZ': '中國南方航空', 'CA': '中國國際航空', 'HO': '吉祥航空', '9C': '春秋航空',
+        'MF': '廈門航空', 'SC': '山東航空', 'JL': '日本航空', 'NH': '全日空',
+        'MM': '樂桃航空', 'TR': '酷航', 'SQ': '新加坡航空'
       };
 
       for (const [code, name] of Object.entries(airlineMap)) {
-        if (prefix.startsWith(code)) {
-          return compact ? `${clean} (${name})` : `${clean} (${name})`;
-        }
+        if (prefix.startsWith(code)) return `${clean} (${name})`;
       }
       return clean;
     }
@@ -507,19 +505,19 @@
       const p1 = normalizeStr(g1.passport);
       const p2 = normalizeStr(g2.passport);
       if (p1 && p2 && p1 === p2) {
-        return { level: 'high', reason: `護照號碼相同 (${g1.passport})` };
+        return { level: 'high', reason: `護照號碼完全相同 (${g1.passport})` };
       }
 
       const id1 = normalizeStr(g1.nationalId);
       const id2 = normalizeStr(g2.nationalId);
       if (id1 && id2 && id1 === id2) {
-        return { level: 'high', reason: `身分證相同 (${g1.nationalId})` };
+        return { level: 'high', reason: `身分證字號完全相同 (${g1.nationalId})` };
       }
 
       const ph1 = normalizeStr(g1.phone || g1.tel);
       const ph2 = normalizeStr(g2.phone || g2.tel);
       if (ph1 && ph2 && ph1 === ph2) {
-        return { level: 'high', reason: `電話相同` };
+        return { level: 'high', reason: `聯絡電話完全相同` };
       }
 
       const en1 = normalizeStr(g1.englishName);
@@ -527,7 +525,7 @@
       const b1 = (g1.birthday || '').trim();
       const b2 = (g2.birthday || '').trim();
       if (en1 && en2 && b1 && b2 && en1 === en2 && b1 === b2) {
-        return { level: 'medium', reason: `英文名與生日相符` };
+        return { level: 'medium', reason: `英文姓名與生日完全一致 (${g1.englishName} | ${b1})` };
       }
 
       return null;
@@ -894,34 +892,34 @@
         }
 
         const duplicateAlertBtn = duplicateCandidate
-          ? `<button onclick="openMergeModal('${g.id}', '${duplicateCandidate.guest.id}', '${duplicateCandidate.match.reason}')" class="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-800 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 shadow-sm whitespace-nowrap flex-shrink-0">
+          ? `<button onclick="openMergeModal('${g.id}', '${duplicateCandidate.guest.id}', '${duplicateCandidate.match.reason}')" class="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-800 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
                <span>[發現重複紀錄 (點此合併)]</span>
              </button>`
           : ``;
 
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950 whitespace-nowrap flex-shrink-0">護照照片</button>`
-          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap flex-shrink-0">補傳護照</button>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
 
         const dispatchVerifyBadge = g.dispatchVerified
-          ? `<button onclick="viewDispatchPhoto('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm whitespace-nowrap flex-shrink-0">派車單</button>`
-          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm whitespace-nowrap flex-shrink-0">核對車單</button>`;
+          ? `<button onclick="viewDispatchPhoto('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單</button>`
+          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">核對車單</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
               <div class="flex items-center gap-1.5 flex-wrap min-w-0">
-                <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5 flex-wrap">
+                <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5">
                   <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
                     ${g.name || '未填寫'}
                   </span>
-                  <span class="text-xs text-neutral-400 font-mono whitespace-nowrap">(${g.englishName || '-'})</span>
+                  <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                   ${clientTypeTag}
                   <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 修改</span>
                 </button>
                 ${duplicateAlertBtn}
               </div>
-              <div class="flex items-center gap-2 flex-shrink-0">
+              <div class="flex items-center gap-2">
                 ${dispatchVerifyBadge}
                 ${passportPhotoBtn}
                 ${statusBadge}
@@ -944,10 +942,10 @@
               </div>
 
               <div class="space-y-1">
-                <div>去程航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px] whitespace-nowrap">${formattedArrivalFlight}</span></div>
-                <div>抵達降落: <span class="text-neutral-300 font-medium font-mono">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
-                <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px] whitespace-nowrap">${formattedReturnFlight}</span></div>
-                <div>起飛離開: <span class="text-neutral-300 font-mono">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
+                <div>去程航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedArrivalFlight}</span></div>
+                <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
+                <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
+                <div>起飛離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
                 <div>本次發放積分: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
               </div>
             </div>
@@ -1175,16 +1173,16 @@
           ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
           : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
-        let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 text-xs font-medium whitespace-nowrap">新客/單次</span>`;
+        let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 text-xs font-medium">新客/單次</span>`;
         if (p.clientType === 'long') {
-          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-red-300 text-xs font-bold whitespace-nowrap">長期客戶</span>`;
+          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-red-300 text-xs font-bold">長期客戶</span>`;
         } else if (p.clientType === 'short') {
-          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-xs font-bold whitespace-nowrap">短期客戶</span>`;
+          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-xs font-bold">短期客戶</span>`;
         }
 
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950 whitespace-nowrap flex-shrink-0">護照照片</button>`
-          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1 whitespace-nowrap flex-shrink-0">補傳護照</button>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
@@ -1193,13 +1191,13 @@
                 <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
                   ${g.name || '未填寫'}
                 </span>
-                <span class="text-xs text-neutral-400 font-mono whitespace-nowrap">(${g.englishName || '-'})</span>
+                <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
                 <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 編輯</span>
               </button>
-              <div class="text-right flex items-center gap-3 flex-shrink-0">
+              <div class="text-right flex items-center gap-3">
                 ${passportPhotoBtn}
-                <div class="whitespace-nowrap">
+                <div>
                   <span class="text-xs text-neutral-400">累積總積分:</span>
                   <span class="text-base font-black text-amber-400 font-mono ml-1">${p.totalPoints}</span> <span class="text-[10px] text-neutral-500">點</span>
                 </div>
@@ -1240,109 +1238,8 @@
     }
 
     // ==========================================
-    // 8. 派車單原圖預覽與 OCR 上傳存檔
+    // 12. 任務派遣模組輔助函式
     // ==========================================
-    window.viewDispatchPhoto = (id) => {
-      const g = allGuests[id];
-      if (!g || !g.dispatchImage) {
-        alert("此旅客尚無儲存的派車單原圖。");
-        return;
-      }
-      document.getElementById("dispatchModalImg").src = g.dispatchImage;
-      document.getElementById("dispatchModalTitle").innerText = `${g.name || '貴賓'} 的派車單原圖 (${g.englishName || '-'})`;
-      document.getElementById("dispatchPhotoModal").classList.remove("hidden");
-    };
-
-    window.closeDispatchPhotoModal = () => {
-      document.getElementById("dispatchPhotoModal").classList.add("hidden");
-      document.getElementById("dispatchModalImg").src = "";
-    };
-
-    let dispatchTargetGuestId = null;
-    const dispatchUploadInput = document.getElementById("dispatchUploadInput");
-    const dispatchModal = document.getElementById("dispatchResultModal");
-    const dispatchLoadingOverlay = document.getElementById("dispatchLoadingOverlay");
-
-    window.triggerDispatchVerify = (id) => {
-      dispatchTargetGuestId = id;
-      dispatchUploadInput.value = "";
-      dispatchUploadInput.click();
-    };
-
-    dispatchUploadInput.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file || !dispatchTargetGuestId) return;
-
-      const guest = allGuests[dispatchTargetGuestId];
-      if (!guest) return;
-
-      dispatchLoadingOverlay.classList.remove("hidden");
-
-      try {
-        const compressedBase64 = await compressImageForStorage(file);
-        const croppedImg = await preprocessDispatchImage(file);
-        const worker = await getOcrWorker();
-        const { data: { text } } = await worker.recognize(croppedImg);
-
-        let rawOcrText = text.replace(/\n/g, ' ').toUpperCase();
-        let extractedName = "";
-
-        const matchSlash = rawOcrText.match(/[0-9]{5,12}\s+([A-Z\s]+)\//);
-        if (matchSlash && matchSlash[1]) {
-          extractedName = matchSlash[1].trim();
-        } else {
-          const matchBooking = rawOcrText.match(/FOR\s+([0-9]*\s*)([A-Z\s]+)/);
-          if (matchBooking && matchBooking[2]) {
-            extractedName = matchBooking[2].split('/')[0].trim();
-          } else {
-            extractedName = rawOcrText.replace(/BOOKING|FOR|[0-9/]/g, '').trim();
-          }
-        }
-
-        const cleanExtracted = normalizeStr(extractedName);
-        const cleanRegistered = normalizeStr(guest.englishName);
-
-        const isExactMatch = (cleanExtracted.length > 0 && cleanRegistered.length > 0) && (cleanExtracted === cleanRegistered || cleanExtracted.includes(cleanRegistered) || cleanRegistered.includes(cleanExtracted));
-
-        document.getElementById("dispatchOcrRaw").innerText = extractedName || '(未辨識出英文姓名)';
-        document.getElementById("dispatchRegisteredName").innerText = guest.englishName || '(系統未填寫英文名)';
-
-        if (isExactMatch) {
-          document.getElementById("dispatchResultTitle").innerText = "確認正確 (派車單原圖已自動留存)";
-          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
-          document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與登記完全吻合，原圖已同步留存於後台供接機查閱！";
-          
-          await update(ref(db, `guests/${dispatchTargetGuestId}`), {
-            dispatchVerified: true,
-            dispatchImage: compressedBase64
-          });
-        } else {
-          document.getElementById("dispatchResultTitle").innerText = "異常，請人員再次檢查";
-          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-red-500 animate-pulse";
-          document.getElementById("dispatchResultMsg").innerText = "截圖辨識之英文姓名與登記姓名不符，請核對下方資訊或手動修改。";
-        }
-
-        dispatchModal.classList.remove("hidden");
-      } catch (err) {
-        alert("派車單辨識失敗: " + err.message);
-      } finally {
-        dispatchLoadingOverlay.classList.add("hidden");
-      }
-    });
-
-    window.closeDispatchModal = () => {
-      dispatchModal.classList.add("hidden");
-      dispatchTargetGuestId = null;
-    };
-
-    // ==========================================
-    // 9. 任務派遣管理模組
-    // ==========================================
-    window.setTaskFilter = (type) => {
-      taskFilter = type;
-      renderTasksView();
-    };
-
     window.openCreateTaskModal = () => {
       if (currentUser?.role !== 'admin') return;
       document.getElementById("taskTitleInput").value = "";
@@ -1356,1372 +1253,7 @@
     window.closeCreateTaskModal = () => {
       document.getElementById("taskModal").classList.add("hidden");
     };
-
-    window.submitCreateTask = async () => {
-      const title = document.getElementById("taskTitleInput").value.trim();
-      const description = document.getElementById("taskDescInput").value.trim();
-      const assigneeName = document.getElementById("taskAssigneeInput").value.trim();
-      const dueDate = document.getElementById("taskDueDateInput").value;
-      const errorEl = document.getElementById("taskModalError");
-
-      if (!title || !assigneeName || !dueDate) {
-        errorEl.textContent = "任務標題、任務負責人全名與截止時間皆為必填";
-        errorEl.classList.remove("hidden");
-        return;
-      }
-
-      const userList = Object.values(allUsers);
-      const isUserExist = userList.some(u => (u.name || '').trim().toLowerCase() === assigneeName.toLowerCase());
-
-      if (!isUserExist) {
-        errorEl.textContent = `查無姓名為「${assigneeName}」的員工，請確認全名輸入正確性（請至員工管理核對全名）`;
-        errorEl.classList.remove("hidden");
-        return;
-      }
-
-      try {
-        await push(ref(db, "tasks"), {
-          title,
-          description,
-          assigneeName,
-          dueDate,
-          status: "pending", 
-          isClosed: false,
-          createdBy: currentUser.name,
-          createdAt: Date.now(),
-          staffRemark: ""
-        });
-        alert(`任務【${title}】已成功派遣指派給 ${assigneeName}！`);
-        closeCreateTaskModal();
-      } catch (err) {
-        errorEl.textContent = "任務建立失敗: " + err.message;
-        errorEl.classList.remove("hidden");
-      }
-    };
-
-    window.updateTaskByStaff = async (taskId) => {
-      const statusSelect = document.getElementById(`task_status_${taskId}`);
-      const remarkInput = document.getElementById(`task_remark_${taskId}`);
-      if (!statusSelect) return;
-
-      const newStatus = statusSelect.value;
-      const newRemark = remarkInput ? remarkInput.value.trim() : "";
-
-      try {
-        await update(ref(db, `tasks/${taskId}`), {
-          status: newStatus,
-          staffRemark: newRemark,
-          updatedAt: Date.now()
-        });
-        alert("任務狀態與說明已即時回傳更新！");
-      } catch (err) {
-        alert("更新失敗: " + err.message);
-      }
-    };
-
-    window.toggleTaskCloseByAdmin = async (taskId, currentClosedState) => {
-      if (currentUser?.role !== 'admin') {
-        alert("僅總管理員可執行任務結案/重啟。");
-        return;
-      }
-
-      const nextState = !currentClosedState;
-      const msg = nextState ? "確認要將此任務正式【標記結案】嗎？（任務資料將永久保留於已結案清單）" : "確認要【重啟】此已結案任務？";
-      if (!confirm(msg)) return;
-
-      try {
-        await update(ref(db, `tasks/${taskId}`), {
-          isClosed: nextState,
-          closedAt: nextState ? Date.now() : null,
-          closedBy: nextState ? currentUser.name : null
-        });
-      } catch (err) {
-        alert("操作失敗: " + err.message);
-      }
-    };
-
-    window.deleteTaskByAdmin = async (taskId, taskTitle) => {
-      if (currentUser?.role !== 'admin') return;
-      if (confirm(`確定要刪除任務【${taskTitle}】嗎？刪除後無法復原。`)) {
-        await remove(ref(db, `tasks/${taskId}`));
-      }
-    };
-
-    function renderTasksView() {
-      const container = document.getElementById("tasksContainer");
-      const isAdmin = (currentUser?.role === 'admin');
-      const currentUserName = (currentUser?.name || '').trim().toLowerCase();
-
-      let list = Object.entries(allTasks).map(([id, data]) => ({ id, ...data }));
-
-      if (!isAdmin) {
-        list = list.filter(t => (t.assigneeName || '').trim().toLowerCase() === currentUserName);
-      }
-
-      if (taskFilter === 'active') {
-        list = list.filter(t => !t.isClosed);
-      } else if (taskFilter === 'closed') {
-        list = list.filter(t => t.isClosed);
-      }
-
-      list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-
-      const btns = {
-        'active': document.getElementById("taskBtnActive"),
-        'closed': document.getElementById("taskBtnClosed"),
-        'all': document.getElementById("taskBtnAll")
-      };
-      Object.entries(btns).forEach(([k, el]) => {
-        if (!el) return;
-        if (taskFilter === k) {
-          el.className = "px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs transition shadow-sm";
-        } else {
-          el.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition";
-        }
-      });
-
-      if (list.length === 0) {
-        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無符合條件的派遣任務。</div>`;
-        return;
-      }
-
-      container.innerHTML = list.map(t => {
-        const isClosed = !!t.isClosed;
-        const statusMap = {
-          'pending': { text: '待處理', class: 'bg-neutral-800 text-neutral-300' },
-          'in_progress': { text: '處理中', class: 'bg-blue-950 border border-blue-800 text-blue-300 font-bold' },
-          'completed': { text: '完成', class: 'bg-emerald-950 border border-emerald-800 text-emerald-400 font-bold' },
-          'delayed': { text: '延遲', class: 'bg-rose-950 border border-rose-800 text-rose-400 font-bold' }
-        };
-
-        const currentStatusInfo = statusMap[t.status] || statusMap['pending'];
-        let actionAreaHtml = '';
-
-        if (isAdmin) {
-          actionAreaHtml = `
-            <div class="flex items-center justify-between pt-2 border-t border-neutral-800">
-              <button onclick="deleteTaskByAdmin('${t.id}', '${(t.title || '').replace(/'/g, "\\'")}')" class="text-xs text-neutral-500 hover:text-red-400 transition font-medium">
-                刪除任務
-              </button>
-              <button onclick="toggleTaskCloseByAdmin('${t.id}', ${isClosed})" class="px-4 py-2 ${isClosed ? 'bg-neutral-950 text-neutral-300 border border-neutral-700 hover:bg-neutral-800' : 'bg-red-950 hover:bg-red-900 text-red-300 border border-red-800/80 shadow-md shadow-red-950/40'} rounded-xl text-xs font-bold transition">
-                ${isClosed ? '重啟任務' : '勾選結案'}
-              </button>
-            </div>
-          `;
-        } else {
-          actionAreaHtml = `
-            <div class="space-y-2.5 pt-2 border-t border-neutral-800 text-xs">
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-[10px] text-neutral-400 mb-1">更新任務狀態</label>
-                  <select id="task_status_${t.id}" class="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500 font-medium">
-                    <option value="pending" ${t.status === 'pending' ? 'selected' : ''}>待處理</option>
-                    <option value="in_progress" ${t.status === 'in_progress' ? 'selected' : ''}>處理中</option>
-                    <option value="completed" ${t.status === 'completed' ? 'selected' : ''}>完成</option>
-                    <option value="delayed" ${t.status === 'delayed' ? 'selected' : ''}>延遲</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-[10px] text-neutral-400 mb-1">狀況說明填寫</label>
-                  <input id="task_remark_${t.id}" value="${t.staffRemark || ''}" placeholder="輸入進度或狀況..." class="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500" />
-                </div>
-              </div>
-
-              <button onclick="updateTaskByStaff('${t.id}')" class="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-bold transition">
-                回傳進度
-              </button>
-            </div>
-          `;
-        }
-
-        return `
-          <div class="bg-neutral-900 border ${isClosed ? 'border-neutral-800 opacity-60' : 'border-neutral-800/90'} rounded-2xl p-4 space-y-3.5 shadow-lg hover:border-neutral-700 transition flex flex-col justify-between">
-            <div class="space-y-2">
-              <div class="flex items-start justify-between gap-2 border-b border-neutral-800 pb-2.5">
-                <div class="space-y-0.5 min-w-0">
-                  <div class="text-sm font-bold text-white truncate">${t.title || '未命名任務'}</div>
-                  <div class="text-[11px] text-neutral-400 truncate">
-                    負責人: <b class="text-red-400 font-bold">${t.assigneeName || '未指定'}</b> 
-                    <span class="text-neutral-600 mx-1">|</span> 
-                    派發: ${t.createdBy || '管理員'}
-                  </div>
-                </div>
-                <div class="flex items-center gap-1.5 flex-shrink-0">
-                  <span class="px-2 py-0.5 rounded text-[10px] ${currentStatusInfo.class}">${currentStatusInfo.text}</span>
-                  ${isClosed ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-950 text-neutral-500 font-bold border border-neutral-800">已結案</span>` : ''}
-                </div>
-              </div>
-
-              ${t.description ? `<div class="text-xs text-neutral-300 bg-neutral-950/60 p-2.5 rounded-xl border border-neutral-800/80 leading-relaxed">${t.description}</div>` : ''}
-
-              <div class="text-xs text-neutral-400 space-y-1">
-                <div>截止時間: <span class="text-amber-400 font-mono font-medium">${t.dueDate ? t.dueDate.replace('T', ' ') : '無指定'}</span></div>
-                <div>目前狀況說明: <span class="text-neutral-200 font-medium">${t.staffRemark ? t.staffRemark : '(尚未填寫)'}</span></div>
-              </div>
-            </div>
-
-            ${actionAreaHtml}
-          </div>
-        `;
-      }).join("");
-    }
-
-    // ==========================================
-    // 10. 報表與營運分析
-    // ==========================================
-    function initAnalyticsDates() {
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-
-      const d30 = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-      const start30Str = `${d30.getFullYear()}-${pad(d30.getMonth() + 1)}-${pad(d30.getDate())}`;
-
-      analyticsStartDate = start30Str;
-      analyticsEndDate = todayStr;
-
-      document.getElementById("analyticsStartInput").value = analyticsStartDate;
-      document.getElementById("analyticsEndInput").value = analyticsEndDate;
-    }
-
-    window.setAnalyticsRange = (type) => {
-      analyticsRangeType = type;
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-
-      if (type === 'today') {
-        analyticsStartDate = todayStr;
-        analyticsEndDate = todayStr;
-      } else if (type === '7d') {
-        const d = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        analyticsStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        analyticsEndDate = todayStr;
-      } else if (type === '30d') {
-        const d = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
-        analyticsStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        analyticsEndDate = todayStr;
-      } else if (type === 'month') {
-        analyticsStartDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
-        analyticsEndDate = todayStr;
-      } else if (type === '6m') {
-        const d = new Date();
-        d.setMonth(d.getMonth() - 6);
-        analyticsStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
-        analyticsEndDate = todayStr;
-      } else if (type === 'all') {
-        analyticsStartDate = '2020-01-01';
-        analyticsEndDate = '2030-12-31';
-      }
-
-      document.getElementById("analyticsStartInput").value = analyticsStartDate;
-      document.getElementById("analyticsEndInput").value = analyticsEndDate;
-      updateRangeButtonStyles();
-      renderAnalyticsDashboard();
-    };
-
-    window.onCustomDateChange = () => {
-      analyticsRangeType = 'custom';
-      analyticsStartDate = document.getElementById("analyticsStartInput").value;
-      analyticsEndDate = document.getElementById("analyticsEndInput").value;
-      updateRangeButtonStyles();
-      renderAnalyticsDashboard();
-    };
-
-    function updateRangeButtonStyles() {
-      const btns = {
-        'today': document.getElementById("btnRangeToday"),
-        '7d': document.getElementById("btnRange7d"),
-        '30d': document.getElementById("btnRange30d"),
-        'month': document.getElementById("btnRangeMonth"),
-        '6m': document.getElementById("btnRange6m"),
-        'all': document.getElementById("btnRangeAll")
-      };
-
-      Object.entries(btns).forEach(([key, el]) => {
-        if (!el) return;
-        if (analyticsRangeType === key) {
-          el.className = "px-3 py-1.5 rounded-xl bg-neutral-700 text-white font-bold text-xs transition shadow-sm border border-neutral-600";
-        } else {
-          el.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition";
-        }
-      });
-    }
-
-    function renderAnalyticsDashboard() {
-      if (currentUser?.role !== 'admin') return;
-
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
-      const nowTs = Date.now();
-      const profileMap = buildClientProfileMap(guestList, nowTs);
-
-      const startTs = analyticsStartDate ? new Date(analyticsStartDate + "T00:00:00").getTime() : 0;
-      const endTs = analyticsEndDate ? new Date(analyticsEndDate + "T23:59:59").getTime() : Infinity;
-
-      const rangeGuests = guestList.filter(g => {
-        const ts = g.createdAt || (g.arrival ? new Date(g.arrival).getTime() : 0);
-        return ts >= startTs && ts <= endTs;
-      });
-
-      const totalCount = rangeGuests.length;
-      let totalStayDays = 0;
-      let vipCount = 0;
-      let shortCount = 0;
-      let newCount = 0;
-      let pendingDispatchList = [];
-      let incompleteDataList = [];
-      let abnormalCount = 0;
-
-      const staffMap = {};
-      const utmMap = {};
-      const trendDateMap = {};
-
-      rangeGuests.forEach(g => {
-        const stay = parseInt(g.stayDays, 10) || 1;
-        totalStayDays += stay;
-
-        const passKey = (g.passport || '').trim().toUpperCase();
-        const idKey = (g.nationalId || '').trim().toUpperCase();
-        const nameKey = (g.name || '').trim();
-        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
-        const p = profileMap[pKey] || { clientType: 'other' };
-
-        if (p.clientType === 'long') vipCount++;
-        else if (p.clientType === 'short') shortCount++;
-        else newCount++;
-
-        if (!g.dispatchVerified && g.status !== 'cancelled' && g.status !== 'completed' && g.status !== 'checked_out') {
-          pendingDispatchList.push(g);
-        }
-
-        const isMissing = !g.passportImage || !g.passport || !g.nationalId || !g.birthday || (!g.returnAirline && !g.isDepartureUncertain);
-        if (isMissing) {
-          incompleteDataList.push(g);
-        }
-
-        if (g.status === 'cancelled') abnormalCount++;
-
-        const staffName = g.staff ? g.staff.trim() : '未指派專員';
-        if (!staffMap[staffName]) staffMap[staffName] = { count: 0, points: 0 };
-        staffMap[staffName].count += 1;
-        staffMap[staffName].points += (parseInt(g.points, 10) || 0);
-
-        const cleanUtm = (g.utmSource && g.utmSource.trim()) ? g.utmSource.trim() : 'direct';
-        utmMap[cleanUtm] = (utmMap[cleanUtm] || 0) + 1;
-
-        const dateKey = g.arrival ? g.arrival.split('T')[0] : (g.createdAt ? new Date(g.createdAt).toISOString().split('T')[0] : '其他');
-        trendDateMap[dateKey] = (trendDateMap[dateKey] || 0) + 1;
-      });
-
-      const avgStay = totalCount > 0 ? (totalStayDays / totalCount).toFixed(1) : '0';
-
-      document.getElementById("kpiTotalGuests").innerText = totalCount;
-      document.getElementById("kpiAvgStay").innerText = avgStay;
-      document.getElementById("kpiVipCount").innerText = vipCount;
-      document.getElementById("kpiPendingDispatch").innerText = pendingDispatchList.length;
-      document.getElementById("kpiIncompleteData").innerText = incompleteDataList.length;
-      document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
-
-      renderTrendChart(trendDateMap);
-      renderTierChart(vipCount, shortCount, newCount);
-      renderUtmChart(utmMap);
-      renderStaffLeaderboard(staffMap);
-
-      renderActionPendingDispatch(pendingDispatchList);
-      renderActionIncompleteData(incompleteDataList);
-    }
-
-    function renderTrendChart(dateMap) {
-      const ctx = document.getElementById("chartTrend").getContext("2d");
-      const sortedDates = Object.keys(dateMap).sort();
-      const counts = sortedDates.map(d => dateMap[d]);
-
-      if (chartTrendInstance) chartTrendInstance.destroy();
-
-      chartTrendInstance = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: sortedDates.length > 0 ? sortedDates : ['無資料'],
-          datasets: [{
-            label: '抵達旅客數',
-            data: counts.length > 0 ? counts : [0],
-            backgroundColor: 'rgba(185, 28, 28, 0.75)',
-            borderColor: '#991b1b',
-            borderWidth: 1,
-            borderRadius: 6,
-            maxBarThickness: 36
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false }
-          },
-          scales: {
-            x: {
-              grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#737373', font: { size: 10 } }
-            },
-            y: {
-              grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#737373', precision: 0, font: { size: 10 } }
-            }
-          }
-        }
-      });
-    }
-
-    function renderTierChart(vip, short, newC) {
-      const ctx = document.getElementById("chartTier").getContext("2d");
-      if (chartTierInstance) chartTierInstance.destroy();
-
-      chartTierInstance = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels: ['長期 VIP 客戶', '短期客戶', '新客 / 單次'],
-          datasets: [{
-            data: [vip, short, newC],
-            backgroundColor: ['#b91c1c', '#a8a29e', '#64748b'],
-            borderColor: '#171717',
-            borderWidth: 2
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: {
-              position: 'bottom',
-              labels: { color: '#a3a3a3', font: { size: 11 }, boxWidth: 10, padding: 12 }
-            }
-          },
-          cutout: '72%'
-        }
-      });
-    }
-
-    function renderUtmChart(utmMap) {
-      const ctx = document.getElementById("chartUtm").getContext("2d");
-      const labels = Object.keys(utmMap);
-      const data = labels.map(k => utmMap[k]);
-
-      if (chartUtmInstance) chartUtmInstance.destroy();
-
-      chartUtmInstance = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: labels.length > 0 ? labels : ['無資料'],
-          datasets: [{
-            axis: 'y',
-            data: data.length > 0 ? data : [0],
-            backgroundColor: 'rgba(100, 116, 139, 0.75)',
-            borderColor: '#475569',
-            borderWidth: 1,
-            borderRadius: 6,
-            maxBarThickness: 28
-          }]
-        },
-        options: {
-          indexAxis: 'y',
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false }
-          },
-          scales: {
-            x: {
-              grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#737373', precision: 0, font: { size: 10 } }
-            },
-            y: {
-              grid: { color: 'rgba(255,255,255,0.04)' },
-              ticks: { color: '#d4d4d4', font: { size: 11 } }
-            }
-          }
-        }
-      });
-    }
-
-    function renderStaffLeaderboard(staffMap) {
-      const container = document.getElementById("staffLeaderboardContainer");
-      const sorted = Object.entries(staffMap).sort((a, b) => b[1].count - a[1].count);
-
-      if (sorted.length === 0) {
-        container.innerHTML = `<div class="text-neutral-500 text-xs text-center py-6">此區間無專員作業紀錄。</div>`;
-        return;
-      }
-
-      const maxCount = sorted[0][1].count || 1;
-
-      container.innerHTML = sorted.map(([name, data], idx) => {
-        const percent = Math.round((data.count / maxCount) * 100);
-        return `
-          <div class="space-y-1.5 text-xs">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-neutral-500 font-bold w-4">#${idx + 1}</span>
-                <span class="font-bold text-neutral-200">${name}</span>
-              </div>
-              <div class="font-mono text-neutral-400">
-                <b class="text-neutral-200 font-bold text-sm">${data.count}</b> 單 
-                <span class="text-[10px] text-neutral-500 ml-1">(${data.points} 積分)</span>
-              </div>
-            </div>
-            <div class="w-full bg-neutral-950 rounded-full h-1.5 overflow-hidden border border-neutral-800">
-              <div class="bg-neutral-600 h-full rounded-full transition-all duration-500" style="width: ${percent}%"></div>
-            </div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function renderActionPendingDispatch(list) {
-      const container = document.getElementById("actionPendingDispatchBody");
-      if (list.length === 0) {
-        container.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-neutral-500 text-xs">所選區間內所有旅客派車單皆已上傳核驗完成。</td></tr>`;
-        return;
-      }
-
-      container.innerHTML = list.map(g => `
-        <tr class="border-b border-neutral-800/80 hover:bg-neutral-900/60 text-xs whitespace-nowrap">
-          <td class="py-3 px-3.5 font-bold text-white max-w-[160px] truncate">
-            ${g.name || '未填'} <span class="text-neutral-400 font-normal font-mono text-[11px]">(${g.englishName || '-'})</span>
-          </td>
-          <td class="py-3 px-3.5 font-mono text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</td>
-          <td class="py-3 px-3.5 font-mono text-blue-400 font-bold">${formatFlightWithAirline(g.airline, true)}</td>
-          <td class="py-3 px-3.5 text-neutral-300">${g.staff || '未指派'}</td>
-          <td class="py-3 px-3.5 text-right flex-shrink-0">
-            <button onclick="triggerDispatchVerify('${g.id}')" class="px-3 py-1.5 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 font-bold rounded-xl text-xs transition shadow-sm whitespace-nowrap inline-flex items-center gap-1">
-              核對車單
-            </button>
-          </td>
-        </tr>
-      `).join("");
-    }
-
-    function renderActionIncompleteData(list) {
-      const container = document.getElementById("actionIncompleteBody");
-      if (list.length === 0) {
-        container.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-neutral-500 text-xs">所有旅客基本資料皆完整齊全。</td></tr>`;
-        return;
-      }
-
-      container.innerHTML = list.map(g => {
-        const missingItems = [];
-        if (!g.passportImage) missingItems.push("護照照片");
-        if (!g.passport) missingItems.push("護照號碼");
-        if (!g.nationalId) missingItems.push("身分證");
-        if (!g.birthday) missingItems.push("生日");
-        if (!g.returnAirline && !g.isDepartureUncertain) missingItems.push("回程航班");
-
-        return `
-          <tr class="border-b border-neutral-800/80 hover:bg-neutral-900/60 text-xs whitespace-nowrap">
-            <td class="py-3 px-3.5 font-bold text-white max-w-[160px] truncate">
-              ${g.name || '未填'} <span class="text-neutral-400 font-mono text-[11px]">(${g.lineNickname || '無LINE'})</span>
-            </td>
-            <td class="py-3 px-3.5 font-mono text-neutral-300">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
-            <td class="py-3 px-3.5">
-              <span class="text-amber-400 font-medium">${missingItems.join("、")}</span>
-            </td>
-            <td class="py-3 px-3.5 text-right flex-shrink-0">
-              <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold transition whitespace-nowrap inline-flex items-center gap-1">
-                補填資料
-              </button>
-            </td>
-          </tr>
-        `;
-      }).join("");
-    }
-
-    // ==========================================
-    // 11. 智慧客戶資料合併工作台
-    // ==========================================
-    let mergeTargetMasterId = null;
-    let mergeTargetSecondaryId = null;
-    let mergeCombinedPassportImg = null;
-
-    window.openMergeModal = (id1, id2, reasonText) => {
-      const g1 = allGuests[id1];
-      const g2 = allGuests[id2];
-      if (!g1 || !g2) return;
-
-      const t1 = g1.createdAt || 0;
-      const t2 = g2.createdAt || 0;
-      let master = (t1 <= t2) ? g1 : g2;
-      let secondary = (t1 <= t2) ? g2 : g1;
-
-      mergeTargetMasterId = master.id;
-      mergeTargetSecondaryId = secondary.id;
-
-      document.getElementById("mergeMatchReason").innerText = reasonText || "資料高度吻合";
-      document.getElementById("mergeMasterCardTitle").innerText = `主檔案 (建立於: ${master.arrival ? master.arrival.split('T')[0] : '先前'})`;
-      document.getElementById("mergeSecondaryCardTitle").innerText = `待合併次檔案 (建立於: ${secondary.arrival ? secondary.arrival.split('T')[0] : '近期'})`;
-
-      document.getElementById("mergeMasterInfo").innerHTML = `
-        <div>姓名: <b class="text-white">${master.name || '-'}</b> (${master.englishName || '-'})</div>
-        <div>護照: <span class="font-mono">${master.passport || '-'}</span> | 身分證: <span class="font-mono">${master.nationalId || '-'}</span></div>
-        <div>LINE: <span class="text-neutral-300">${master.lineNickname || '-'}</span> | 電話: ${master.phone || master.tel || '-'}</div>
-        <div>備註: <span class="text-neutral-400">${master.note || '無'}</span></div>
-      `;
-
-      document.getElementById("mergeSecondaryInfo").innerHTML = `
-        <div>姓名: <b class="text-white">${secondary.name || '-'}</b> (${secondary.englishName || '-'})</div>
-        <div>護照: <span class="font-mono">${secondary.passport || '-'}</span> | 身分證: <span class="font-mono">${secondary.nationalId || '-'}</span></div>
-        <div>LINE: <span class="text-neutral-300">${secondary.lineNickname || '-'}</span> | 電話: ${secondary.phone || secondary.tel || '-'}</div>
-        <div>備註: <span class="text-neutral-400">${secondary.note || '無'}</span></div>
-      `;
-
-      document.getElementById("mergeFormName").value = master.name || secondary.name || "";
-      document.getElementById("mergeFormEnglishName").value = master.englishName || secondary.englishName || "";
-      document.getElementById("mergeFormPassport").value = master.passport || secondary.passport || "";
-      document.getElementById("mergeFormNationalId").value = master.nationalId || secondary.nationalId || "";
-      document.getElementById("mergeFormBirthday").value = master.birthday || secondary.birthday || "";
-      document.getElementById("mergeFormLine").value = master.lineNickname || secondary.lineNickname || "";
-      document.getElementById("mergeFormReferrer").value = master.referrer || secondary.referrer || "";
-
-      const noteMaster = master.note ? `[主檔備註: ${master.note}]` : "";
-      const noteSecondary = secondary.note ? `[合併備註: ${secondary.note}]` : "";
-      document.getElementById("mergeFormNote").value = [noteMaster, noteSecondary].filter(Boolean).join(" ");
-
-      mergeCombinedPassportImg = master.passportImage || secondary.passportImage || "";
-      const imgStatus = document.getElementById("mergePassportImgStatus");
-      if (mergeCombinedPassportImg) {
-        imgStatus.innerText = "已自動整合最佳護照照片";
-        imgStatus.className = "text-neutral-300 font-medium";
-      } else {
-        imgStatus.innerText = "雙方皆無護照照片";
-        imgStatus.className = "text-neutral-500 font-normal";
-      }
-
-      document.getElementById("mergeModal").classList.remove("hidden");
-    };
-
-    window.closeMergeModal = () => {
-      document.getElementById("mergeModal").classList.add("hidden");
-      mergeTargetMasterId = null;
-      mergeTargetSecondaryId = null;
-      mergeCombinedPassportImg = null;
-    };
-
-    window.confirmExecuteMerge = async () => {
-      if (!mergeTargetMasterId || !mergeTargetSecondaryId) return;
-
-      const master = allGuests[mergeTargetMasterId];
-      const secondary = allGuests[mergeTargetSecondaryId];
-      if (!master || !secondary) return;
-
-      const operatorDisplay = currentUser ? `${currentUser.name} (${currentUser.role === 'admin' ? '管理員' : '接待專員'})` : '系統人員';
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-
-      const newAuditLog = {
-        timestamp: Date.now(),
-        timeStr: timeStr,
-        operator: operatorDisplay,
-        operatorUsername: currentUser?.username || 'unknown',
-        action: "MERGE_CLIENT",
-        sourceId: mergeTargetSecondaryId,
-        sourceName: secondary.name || '未命名',
-        description: `由專員 ${operatorDisplay} 將重複檔案 (${secondary.name || secondary.id}) 合併至此主檔。`
-      };
-
-      const existingLogs = master.auditLogs || [];
-      const updatedAuditLogs = [...existingLogs, newAuditLog];
-      const totalCombinedPoints = (parseInt(master.points || 0, 10) || 0) + (parseInt(secondary.points || 0, 10) || 0);
-
-      const finalMasterData = {
-        name: document.getElementById("mergeFormName").value.trim(),
-        englishName: document.getElementById("mergeFormEnglishName").value.trim().toUpperCase(),
-        passport: document.getElementById("mergeFormPassport").value.trim().toUpperCase(),
-        nationalId: formatNationalId(document.getElementById("mergeFormNationalId").value),
-        birthday: document.getElementById("mergeFormBirthday").value,
-        lineNickname: document.getElementById("mergeFormLine").value.trim(),
-        referrer: document.getElementById("mergeFormReferrer").value.trim(),
-        note: document.getElementById("mergeFormNote").value.trim(),
-        passportImage: mergeCombinedPassportImg || master.passportImage || "",
-        points: totalCombinedPoints,
-        auditLogs: updatedAuditLogs
-      };
-
-      try {
-        await update(ref(db, `guests/${mergeTargetMasterId}`), finalMasterData);
-        await update(ref(db, `guests/${mergeTargetSecondaryId}`), {
-          status: 'merged',
-          mergedIntoId: mergeTargetMasterId,
-          mergedAt: Date.now(),
-          mergedBy: operatorDisplay
-        });
-
-        alert(`客戶資料已成功合併！\n已自動寫入稽核紀錄 (Audit Log) 並整合全部積分。`);
-        closeMergeModal();
-      } catch (err) {
-        alert("合併失敗: " + err.message);
-      }
-    };
-
-    window.exportToCSV = () => {
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
-      const now = new Date();
-      const pad = (n) => String(n).padStart(2, '0');
-      const todayDateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-      const profileMap = buildClientProfileMap(guestList, now.getTime());
-      
-      let list = (activeTab === 'crm')
-        ? Object.values(profileMap).map(p => p.mainGuest)
-        : getFilteredGuests(guestList, now.getTime(), todayDateStr, profileMap);
-
-      if (!list || list.length === 0) {
-        alert("目前清單中沒有任何旅客資料可供匯出！");
-        return;
-      }
-
-      const headers = [
-        "會員編號", "中文姓名", "護照英文姓名", "推薦人", "護照號碼", "身分證字號", "客群分類",
-        "累積總積分", "本次發放積分", "性別", "出生年月日", "LINE暱稱",
-        "去程航班", "抵達時間", "回程航班", "離開時間(起飛)", "停留晚數", "接待專員", "狀態", "其他狀態說明", "客戶需求與備註"
-      ];
-
-      const rows = list.map(g => {
-        const passKey = (g.passport || '').trim().toUpperCase();
-        const idKey = (g.nationalId || '').trim().toUpperCase();
-        const nameKey = (g.name || '').trim();
-        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
-
-        const p = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客' };
-        const stayDays = parseInt(g.stayDays, 10) || (g.isDepartureUncertain ? 5 : 1);
-
-        return [
-          `"${(g.memberId || '').replace(/"/g, '""')}"`,
-          `"${(g.name || '').replace(/"/g, '""')}"`,
-          `"${(g.englishName || '').replace(/"/g, '""')}"`,
-          `"${(g.referrer || '').replace(/"/g, '""')}"`,
-          `"${(g.passport || '').replace(/"/g, '""')}"`,
-          `"${(g.nationalId || '').replace(/"/g, '""')}"`,
-          `"${p.clientTypeLabel}"`,
-          `"${p.totalPoints}"`,
-          `"${g.points || 0}"`,
-          `"${g.gender === 'M' ? '男' : (g.gender === 'F' ? '女' : '')}"`,
-          `"${g.birthday || ''}"`,
-          `"${(g.lineNickname || '').replace(/"/g, '""')}"`,
-          `"${(formatFlightWithAirline(g.airline) || '').replace(/"/g, '""')}"`,
-          `"${(g.arrival || '').replace('T', ' ')}"`,
-          `"${g.isDepartureUncertain ? '尚未確定' : (formatFlightWithAirline(g.returnAirline) || '').replace(/"/g, '""')}"`,
-          `"${g.isDepartureUncertain ? `尚未確定 (暫定${stayDays}天)` : (g.departure || '').replace('T', ' ')}"`,
-          `"${g.isDepartureUncertain ? `暫定${stayDays}晚` : stayDays}"`,
-          `"${(g.staff || '').replace(/"/g, '""')}"`,
-          `"${g.status || 'pending'}"`,
-          `"${(g.statusOtherNote || '').replace(/"/g, '""')}"`,
-          `"${(g.note || '').replace(/"/g, '""')}"`
-        ];
-      });
-
-      const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-
-      const dateStr = new Date().toISOString().split('T')[0];
-      link.setAttribute("href", url);
-      link.setAttribute("download", `濟州島旅客名單_${dateStr}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    };
-
-    window.setRosterFilter = (type) => {
-      rosterFilter = (rosterFilter === type) ? 'all' : type;
-      renderDashboard();
-    };
-
-    window.setHousekeepingFilter = (type) => {
-      housekeepingFilter = (housekeepingFilter === type) ? 'all' : type;
-      renderDashboard();
-    };
-
-    window.toggleMask = (id) => {
-      if (unmaskedIds.has(id)) {
-        unmaskedIds.delete(id);
-      } else {
-        unmaskedIds.add(id);
-      }
-      renderDashboard();
-    };
-
-    window.viewPassportPhoto = (id) => {
-      const g = allGuests[id];
-      if (!g || !g.passportImage) {
-        alert("此旅客登記時未上傳護照照片。");
-        return;
-      }
-      document.getElementById("passportModalImg").src = g.passportImage;
-      document.getElementById("passportModalTitle").innerText = `${g.name || '貴賓'} 的護照照片 (${g.englishName || '-'})`;
-      document.getElementById("passportPhotoModal").classList.remove("hidden");
-    };
-
-    window.closePassportPhotoModal = () => {
-      document.getElementById("passportPhotoModal").classList.add("hidden");
-      document.getElementById("passportModalImg").src = "";
-    };
-
-    let uploadingGuestTargetId = null;
-    const adminUploadInput = document.getElementById("adminPassportUploadInput");
-
-    window.triggerUploadPassport = (id) => {
-      uploadingGuestTargetId = id;
-      adminUploadInput.value = "";
-      adminUploadInput.click();
-    };
-
-    adminUploadInput.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file || !uploadingGuestTargetId) return;
-
-      try {
-        const compressedBase64 = await compressImageForStorage(file);
-        await update(ref(db, `guests/${uploadingGuestTargetId}`), {
-          passportImage: compressedBase64
-        });
-        alert("護照照片已成功補傳並儲存！");
-      } catch (err) {
-        alert("補傳失敗: " + err.message);
-      }
-    });
-
-    let editingGuestId = null;
-    let drawerBaseHistoryPoints = 0;
-
-    window.openEditDrawer = (id) => {
-      editingGuestId = id;
-      const g = allGuests[id];
-      if (!g) return;
-
-      const guestList = Object.entries(allGuests).map(([i, d]) => ({ id: i, ...d })).filter(x => x.status !== 'merged');
-      const nowTs = Date.now();
-      const profileMap = buildClientProfileMap(guestList, nowTs);
-
-      const passKey = (g.passport || '').trim().toUpperCase();
-      const idKey = (g.nationalId || '').trim().toUpperCase();
-      const nameKey = (g.name || '').trim();
-      const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
-
-      const profile = profileMap[pKey] || { totalPoints: 0, closedHistoryPoints: 0, clientTypeLabel: '新客', allVisits: [], upcomingVisits: [], historyVisits: [] };
-
-      drawerBaseHistoryPoints = profile.closedHistoryPoints;
-
-      document.getElementById("editMemberId").value = g.memberId || '';
-      document.getElementById("editName").value = g.name || '';
-      document.getElementById("editEnglishName").value = g.englishName || '';
-      document.getElementById("editReferrer").value = g.referrer || '';
-      document.getElementById("editPassport").value = g.passport || '';
-      document.getElementById("editNationalId").value = g.nationalId || '';
-      document.getElementById("editBirthday").value = g.birthday || '';
-      document.getElementById("editGender").value = g.gender || 'M';
-      document.getElementById("editLineNickname").value = g.lineNickname || '';
-      document.getElementById("editAirline").value = g.airline || '';
-      document.getElementById("editArrival").value = g.arrival || '';
-      document.getElementById("editReturnAirline").value = g.returnAirline || '';
-      document.getElementById("editDeparture").value = g.departure || '';
-      document.getElementById("editDepartureUncertain").checked = !!g.isDepartureUncertain;
-      document.getElementById("editStayDays").value = g.stayDays || (g.isDepartureUncertain ? 5 : 1);
-      document.getElementById("editStaff").value = g.staff || '';
-      
-      const statusVal = g.status || 'pending';
-      document.getElementById("editStatus").value = statusVal;
-      document.getElementById("editStatusOtherNote").value = g.statusOtherNote || '';
-      
-      if (statusVal === 'other') {
-        document.getElementById("statusOtherContainer").classList.remove("hidden");
-      } else {
-        document.getElementById("statusOtherContainer").classList.add("hidden");
-      }
-
-      document.getElementById("editPoints").value = g.points || 0;
-      document.getElementById("editNote").value = g.note || '';
-
-      const missingNormalClass = "w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition";
-      const missingHighlightClass = "w-full px-3 py-2 bg-red-950/40 border-2 border-red-500 rounded-xl text-white outline-none focus:border-red-400 text-xs transition ring-1 ring-red-500/50 shadow-sm shadow-red-950";
-
-      const passInput = document.getElementById("editPassport");
-      const passLabel = document.getElementById("editPassportLabel");
-      if (!g.passport) {
-        passInput.className = missingHighlightClass;
-        passLabel.innerHTML = `護照號碼 <span class="text-red-400 font-bold text-[10px] ml-1">(必補填)</span>`;
-      } else {
-        passInput.className = missingNormalClass;
-        passLabel.innerHTML = `護照號碼`;
-      }
-
-      const idInput = document.getElementById("editNationalId");
-      const idLabel = document.getElementById("editNationalIdLabel");
-      if (!g.nationalId) {
-        idInput.className = missingHighlightClass;
-        idLabel.innerHTML = `身分證字號 <span class="text-red-400 font-bold text-[10px] ml-1">(必補填)</span>`;
-      } else {
-        idInput.className = missingNormalClass;
-        idLabel.innerHTML = `身分證字號`;
-      }
-
-      const birthInput = document.getElementById("editBirthday");
-      const birthLabel = document.getElementById("editBirthdayLabel");
-      if (!g.birthday) {
-        birthInput.className = missingHighlightClass;
-        birthLabel.innerHTML = `出生年月日 <span class="text-red-400 font-bold text-[10px] ml-1">(必補填)</span>`;
-      } else {
-        birthInput.className = missingNormalClass;
-        birthLabel.innerHTML = `出生年月日`;
-      }
-
-      const returnFlightInput = document.getElementById("editReturnAirline");
-      const returnFlightLabel = document.getElementById("editReturnAirlineLabel");
-      if (!g.returnAirline && !g.isDepartureUncertain) {
-        returnFlightInput.className = missingHighlightClass;
-        returnFlightLabel.innerHTML = `回程航班代碼 <span class="text-red-400 font-bold text-[10px] ml-1">(必補填)</span>`;
-      } else {
-        returnFlightInput.className = missingNormalClass;
-        returnFlightLabel.innerHTML = `回程航班代碼`;
-      }
-
-      const drawerPhotoBtn = document.getElementById("drawerPassportPhotoBtn");
-      const drawerUploadPhotoBtn = document.getElementById("drawerUploadPassportPhotoBtn");
-
-      if (g.passportImage) {
-        drawerPhotoBtn.classList.remove("hidden");
-        drawerUploadPhotoBtn.classList.add("hidden");
-      } else {
-        drawerPhotoBtn.classList.add("hidden");
-        drawerUploadPhotoBtn.classList.remove("hidden");
-        drawerUploadPhotoBtn.className = "px-3 py-2 bg-red-950 border-2 border-red-500 hover:bg-red-900 text-red-200 rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950 animate-pulse whitespace-nowrap";
-        drawerUploadPhotoBtn.innerHTML = `補傳護照照片 (缺漏待補)`;
-      }
-
-      updateDrawerPointsDisplay();
-      document.getElementById("drawerVisitCount").innerText = profile.historyVisits.length;
-      document.getElementById("drawerClientTag").innerText = profile.clientTypeLabel;
-
-      const historyListContainer = document.getElementById("historyListContainer");
-      let html = '';
-
-      if (profile.upcomingVisits.length > 0) {
-        html += `<div class="text-[11px] font-bold text-red-400 pt-1">未來 / 進行中預約行程 (${profile.upcomingVisits.length} 筆)：</div>`;
-        html += profile.upcomingVisits.map((v) => `
-          <div class="bg-neutral-950 border ${v.id === id ? 'border-red-600/80 bg-red-950/20' : 'border-neutral-800'} rounded-xl p-2.5 text-xs space-y-1">
-            <div class="flex items-center justify-between text-neutral-200 font-medium">
-              <span>期間：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.isDepartureUncertain ? '未定(暫定5天)' : (v.departure ? v.departure.split('T')[0] : '-')}</span>
-              <span class="text-red-400 font-bold font-mono text-[10px] uppercase">${v.status || 'pending'}</span>
-            </div>
-            <div class="text-neutral-400 flex items-center justify-between text-[11px]">
-              <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.isDepartureUncertain ? '暫定' : ''}${v.stayDays || 1}晚</span>
-              ${v.id === id ? '<span class="text-red-400 text-[10px] font-bold">當前編輯中</span>' : `<button onclick="openEditDrawer('${v.id}')" class="text-[10px] text-neutral-400 underline hover:text-white">切換編輯</button>`}
-            </div>
-          </div>
-        `).join("");
-      }
-
-      if (profile.historyVisits.length > 0) {
-        html += `<div class="text-[11px] font-bold text-emerald-400 pt-2">已結案歷史行程 (${profile.historyVisits.length} 筆)：</div>`;
-        html += profile.historyVisits.map((v, idx) => `
-          <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-2.5 text-xs space-y-1">
-            <div class="flex items-center justify-between text-neutral-300 font-medium">
-              <span>歷史 #${idx + 1}：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '未定'}</span>
-              <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
-            </div>
-          </div>
-        `).join("");
-      }
-
-      if (!html) {
-        html = `<div class="text-neutral-500 text-xs text-center py-2">尚無其他關聯預約或歷史紀錄。</div>`;
-      }
-      historyListContainer.innerHTML = html;
-
-      const auditContainer = document.getElementById("drawerAuditLogContainer");
-      const logs = g.auditLogs || [];
-      if (logs.length === 0) {
-        auditContainer.innerHTML = `<div class="text-neutral-500 text-xs py-1">此客戶尚無任何合併或異動紀錄。</div>`;
-      } else {
-        auditContainer.innerHTML = logs.map(log => `
-          <div class="border-l-2 border-amber-500/80 pl-3 py-1 space-y-0.5 text-xs">
-            <div class="text-amber-400/90 font-mono text-[11px]">${log.timeStr} 由 <b class="text-white">${log.operator}</b> 操作</div>
-            <div class="text-neutral-300">${log.description}</div>
-          </div>
-        `).join("");
-      }
-
-      document.getElementById("historyDrawerSection").classList.add("hidden");
-      document.getElementById("toggleHistoryBtn").innerText = `展開行程明細 (預約 ${profile.upcomingVisits.length} / 歷史 ${profile.historyVisits.length})`;
-      document.getElementById("editDrawerModal").classList.remove("hidden");
-    };
-
-    document.getElementById("editStatus").addEventListener("change", (e) => {
-      const isOther = (e.target.value === 'other');
-      const otherContainer = document.getElementById("statusOtherContainer");
-      if (isOther) {
-        otherContainer.classList.remove("hidden");
-        document.getElementById("editStatusOtherNote").focus();
-      } else {
-        otherContainer.classList.add("hidden");
-        document.getElementById("editStatusOtherNote").value = "";
-      }
-    });
-
-    document.getElementById("editStayDays").addEventListener("input", (e) => {
-      const days = parseInt(e.target.value, 10);
-      const arrVal = document.getElementById("editArrival").value;
-      const isUncertain = document.getElementById("editDepartureUncertain").checked;
-      
-      if (!isUncertain && arrVal && !isNaN(days) && days > 0) {
-        const arrDate = new Date(arrVal);
-        arrDate.setDate(arrDate.getDate() + days);
-        const pad = (n) => String(n).padStart(2, '0');
-        document.getElementById("editDeparture").value = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T06:00`;
-      }
-    });
-
-    document.getElementById("editDeparture").addEventListener("change", (e) => {
-      const depVal = e.target.value;
-      const arrVal = document.getElementById("editArrival").value;
-      if (arrVal && depVal) {
-        const d1 = new Date(arrVal);
-        const d2 = new Date(depVal);
-        const diffDays = Math.ceil((d2 - d1) / (1000 * 60 * 60 * 24));
-        if (diffDays > 0) {
-          document.getElementById("editStayDays").value = diffDays;
-        }
-      }
-    });
-
-    window.openDrawerPassportPhoto = () => {
-      if (editingGuestId) viewPassportPhoto(editingGuestId);
-    };
-
-    window.triggerDrawerUploadPassport = () => {
-      if (editingGuestId) triggerUploadPassport(editingGuestId);
-    };
-
-    window.onDrawerPointsInput = () => {
-      const currentInputPoints = parseInt(document.getElementById("editPoints").value, 10) || 0;
-      document.getElementById("drawerTotalPoints").innerText = drawerBaseHistoryPoints + currentInputPoints;
-    };
-
-    function updateDrawerPointsDisplay() {
-      const currentInputPoints = parseInt(document.getElementById("editPoints").value, 10) || 0;
-      document.getElementById("drawerTotalPoints").innerText = drawerBaseHistoryPoints + currentInputPoints;
-    }
-
-    document.getElementById("editNationalId").addEventListener("input", (e) => {
-      e.target.value = formatNationalId(e.target.value);
-    });
-
-    window.toggleHistorySection = () => {
-      const section = document.getElementById("historyDrawerSection");
-      const btn = document.getElementById("toggleHistoryBtn");
-      if (section.classList.contains("hidden")) {
-        section.classList.remove("hidden");
-        btn.innerText = "收起行程明細";
-      } else {
-        section.classList.add("hidden");
-        btn.innerText = "展開行程明細";
-      }
-    };
-
-    window.closeEditDrawer = () => {
-      document.getElementById("editDrawerModal").classList.add("hidden");
-      editingGuestId = null;
-    };
-
-    window.saveGuestDetails = (fromEnterKey = false) => {
-      if (!editingGuestId) return;
-
-      if (fromEnterKey) {
-        const ok = confirm("確認要儲存此旅客的修改資料嗎？");
-        if (!ok) return;
-      }
-
-      const isUncertain = document.getElementById("editDepartureUncertain").checked;
-      const arrVal = document.getElementById("editArrival").value;
-      let depVal = document.getElementById("editDeparture").value;
-      let stayDaysInput = parseInt(document.getElementById("editStayDays").value, 10) || 1;
-
-      if (isUncertain) {
-        depVal = "";
-      } else if (arrVal && !depVal && stayDaysInput > 0) {
-        const arrDate = new Date(arrVal);
-        arrDate.setDate(arrDate.getDate() + stayDaysInput);
-        const pad = (n) => String(n).padStart(2, '0');
-        depVal = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T06:00`;
-      }
-
-      const statusVal = document.getElementById("editStatus").value;
-      const statusOtherNote = (statusVal === 'other') ? document.getElementById("editStatusOtherNote").value.trim().slice(0, 20) : "";
-
-      const updatedData = {
-        memberId: document.getElementById("editMemberId").value.trim().toUpperCase(),
-        name: document.getElementById("editName").value.trim(),
-        englishName: document.getElementById("editEnglishName").value.trim().toUpperCase(),
-        referrer: document.getElementById("editReferrer").value.trim(),
-        passport: document.getElementById("editPassport").value.trim().toUpperCase(),
-        nationalId: formatNationalId(document.getElementById("editNationalId").value),
-        birthday: document.getElementById("editBirthday").value,
-        gender: document.getElementById("editGender").value,
-        lineNickname: document.getElementById("editLineNickname").value.trim(),
-        airline: document.getElementById("editAirline").value.trim().toUpperCase(),
-        arrival: arrVal,
-        returnAirline: isUncertain ? "" : document.getElementById("editReturnAirline").value.trim().toUpperCase(),
-        departure: isUncertain ? "" : depVal,
-        isDepartureUncertain: isUncertain,
-        stayDays: stayDaysInput,
-        staff: document.getElementById("editStaff").value.trim(),
-        status: statusVal,
-        statusOtherNote: statusOtherNote,
-        points: parseInt(document.getElementById("editPoints").value, 10) || 0,
-        note: document.getElementById("editNote").value.trim()
-      };
-
-      update(ref(db, `guests/${editingGuestId}`), updatedData).then(() => {
-        closeEditDrawer();
-        alert("資料已成功全面更新！天數與警戒狀態已即時重新計算。");
-      }).catch(err => {
-        alert("儲存失敗: " + err.message);
-      });
-    };
-
-    document.getElementById("editDrawerModal").addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && e.target.tagName !== "TEXTAREA") {
-        e.preventDefault();
-        saveGuestDetails(true);
-      }
-    });
-
-    window.deleteEntireClient = async (profileKey) => {
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
-      const nowTs = Date.now();
-      const profileMap = buildClientProfileMap(guestList, nowTs);
-      const profile = profileMap[profileKey];
-
-      if (!profile || !profile.allVisits || profile.allVisits.length === 0) {
-        alert("找不到此客戶的關聯資料。");
-        return;
-      }
-
-      const clientName = profile.mainGuest?.name || '此客戶';
-      const visitCount = profile.allVisits.length;
-
-      if (confirm(`確定要刪除「${clientName}」的所有資料嗎？\n這將一併刪除該客戶名下的全部 ${visitCount} 筆行程紀錄且無法復原！`)) {
-        try {
-          const deletePromises = profile.allVisits.map(v => remove(ref(db, `guests/${v.id}`)));
-          await Promise.all(deletePromises);
-          alert(`已成功刪除客戶「${clientName}」及其全部 ${visitCount} 筆關聯紀錄！`);
-        } catch (err) {
-          alert("刪除失敗: " + err.message);
-        }
-      }
-    };
-
-    window.deleteGuest = (id) => {
-      if (confirm("確定要刪除這筆旅客行程資料嗎？（刪除後無法復原）")) {
-        remove(ref(db, `guests/${id}`));
-      }
-    };
-
-    window.closeStayCase = (id) => {
-      if (confirm("確定將此旅客標記為【結案退房】？將從即時看板移出，並正式列入歷史來訪與累計總積分。")) {
-        update(ref(db, `guests/${id}`), { housekeepingStatus: 'closed', status: 'completed' });
-      }
-    };
-
-    window.copyLineCareText = (name, staff, departure, nightsRemaining) => {
-      const depInfo = departure === '未定' ? '尚未確定 (暫定5天)' : departure.replace('T', ' ');
-      const text = `您好 ${name}！我是您的濟州接待專員 ${staff}。提醒您預計退房時間為 (${depInfo})。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於群組告知我們喔！`;
-      navigator.clipboard.writeText(text).then(() => alert("已成功複製關懷話術至剪貼簿！"));
-    };
-
-    let currentExtendId = null;
-    let currentStayDays = 1;
-
-    window.openExtendModal = (id, days) => {
-      currentExtendId = id;
-      currentStayDays = days;
-      document.getElementById("extendModal").classList.remove("hidden");
-    };
-
-    window.closeExtendModal = () => {
-      document.getElementById("extendModal").classList.add("hidden");
-      currentExtendId = null;
-    };
-
-    window.confirmExtend = () => {
-      const addNights = parseInt(document.getElementById("extendNightsSelect").value, 10);
-      const guest = allGuests[currentExtendId];
-      if (!guest) return;
-
-      let baseDate = new Date();
-      if (guest.departure) {
-        baseDate = new Date(guest.departure);
-      } else if (guest.arrival) {
-        baseDate = new Date(new Date(guest.arrival).getTime() + (5 * 24 * 60 * 60 * 1000));
-      }
-
-      baseDate.setDate(baseDate.getDate() + addNights);
-      const pad = (n) => String(n).padStart(2, '0');
-      const newDepStr = `${baseDate.getFullYear()}-${pad(baseDate.getMonth() + 1)}-${pad(baseDate.getDate())}T06:00`;
-
-      update(ref(db, `guests/${currentExtendId}`), {
-        departure: newDepStr,
-        isDepartureUncertain: false,
-        stayDays: currentStayDays + addNights,
-        roomExtendedCount: (guest.roomExtendedCount || 0) + 1,
-        housekeepingStatus: 'extended'
-      }).then(() => {
-        closeExtendModal();
-        alert(`已成功為旅客加訂續住 ${addNights} 晚！`);
-      }).catch(err => {
-        alert("續住加訂失敗: " + err.message);
-      });
-    };
-
-    let isDesktopSidebarOpen = true;
-
-    window.toggleSidebar = () => {
-      const sidebar = document.getElementById("sidebarNav");
-      const overlay = document.getElementById("sidebarOverlay");
-      const mainContent = document.getElementById("mainContentArea");
-
-      if (window.innerWidth >= 1024) {
-        isDesktopSidebarOpen = !isDesktopSidebarOpen;
-        if (isDesktopSidebarOpen) {
-          sidebar.classList.remove("-translate-x-full");
-          mainContent.classList.add("lg:ml-64");
-        } else {
-          sidebar.classList.add("-translate-x-full");
-          mainContent.classList.remove("lg:ml-64");
-        }
-      } else {
-        if (sidebar.classList.contains("-translate-x-full")) {
-          sidebar.classList.remove("-translate-x-full");
-          overlay.classList.remove("hidden");
-        } else {
-          sidebar.classList.add("-translate-x-full");
-          overlay.classList.add("hidden");
-        }
-      }
-    };
-
-    // 側邊欄切換 Tab（修復 classList 穩定切換，杜絕 JS 崩潰）
-    window.switchTab = (tab) => {
-      if ((tab === 'analytics' || tab === 'users') && currentUser?.role !== 'admin') {
-        alert("此分頁僅限總管理員查閱。");
-        return;
-      }
-
-      activeTab = tab;
-      
-      const sidebar = document.getElementById("sidebarNav");
-      const overlay = document.getElementById("sidebarOverlay");
-      if (window.innerWidth < 1024) {
-        sidebar.classList.add("-translate-x-full");
-        overlay.classList.add("hidden");
-      }
-
-      // 隱藏所有檢視
-      document.getElementById("rosterView").classList.add("hidden");
-      document.getElementById("housekeepingView").classList.add("hidden");
-      document.getElementById("crmView").classList.add("hidden");
-      document.getElementById("tasksView").classList.add("hidden");
-      document.getElementById("usersView").classList.add("hidden");
-      document.getElementById("analyticsView").classList.add("hidden");
-
-      document.getElementById("rosterStatsGrid").classList.add("hidden");
-      document.getElementById("housekeepingStatsGrid").classList.add("hidden");
-
-      // 重設所有側邊欄按鈕高亮
-      const navBtns = [
-        { id: "navRosterBtn", tab: "roster" },
-        { id: "navHousekeepingBtn", tab: "housekeeping" },
-        { id: "navCrmBtn", tab: "crm" },
-        { id: "navTasksBtn", tab: "tasks" },
-        { id: "navUsersBtn", tab: "users" },
-        { id: "navAnalyticsBtn", tab: "analytics" }
-      ];
-
-      navBtns.forEach(item => {
-        const btn = document.getElementById(item.id);
-        if (!btn) return;
-        if (item.tab === tab) {
-          btn.classList.add("bg-red-600/90", "text-white", "shadow-lg", "shadow-red-950/60", "font-bold");
-          btn.classList.remove("text-neutral-400", "hover:bg-neutral-800", "font-medium");
-        } else {
-          btn.classList.remove("bg-red-600/90", "text-white", "shadow-lg", "shadow-red-950/60", "font-bold");
-          btn.classList.add("text-neutral-400", "hover:bg-neutral-800", "font-medium");
-        }
-      });
-
-      const pageTitle = document.getElementById("currentPageTitle");
-
-      if (tab === 'roster') {
-        document.getElementById("rosterView").classList.remove("hidden");
-        document.getElementById("rosterStatsGrid").classList.remove("hidden");
-        pageTitle.innerText = "即時營運行程";
-      } else if (tab === 'housekeeping') {
-        document.getElementById("housekeepingView").classList.remove("hidden");
-        document.getElementById("housekeepingStatsGrid").classList.remove("hidden");
-        pageTitle.innerText = "房務與續訂警戒";
-      } else if (tab === 'crm') {
-        document.getElementById("crmView").classList.remove("hidden");
-        pageTitle.innerText = "貴賓 CRM 客戶庫";
-      } else if (tab === 'tasks') {
-        document.getElementById("tasksView").classList.remove("hidden");
-        pageTitle.innerText = "任務派遣與回報";
-        renderTasksView();
-      } else if (tab === 'analytics') {
-        document.getElementById("analyticsView").classList.remove("hidden");
-        pageTitle.innerText = "報表與營運分析";
-        renderAnalyticsDashboard();
-      } else if (tab === 'users') {
-        document.getElementById("usersView").classList.remove("hidden");
-        pageTitle.innerText = "員工與帳號權限管理";
-      }
-    };
-
-    const unifiedSelect = document.getElementById("unifiedFilterSelect");
-    const referrerInputContainer = document.getElementById("referrerInputContainer");
-    const referrerInput = document.getElementById("filterReferrerInput");
-
-    unifiedSelect.addEventListener("change", () => {
-      if (unifiedSelect.value === 'referrer') {
-        referrerInputContainer.classList.remove("hidden");
-        referrerInput.focus();
-      } else {
-        referrerInputContainer.classList.add("hidden");
-        referrerInput.value = "";
-      }
-      renderDashboard();
-    });
-
-    document.getElementById("searchInput").addEventListener("input", renderDashboard);
-    referrerInput.addEventListener("input", renderDashboard);
-
-    document.getElementById("crmSearchInput").addEventListener("input", renderDashboard);
-    document.getElementById("crmFilterType").addEventListener("change", renderDashboard);
-    document.getElementById("crmLogicOp").addEventListener("change", renderDashboard);
-    document.getElementById("crmMetricFilter").addEventListener("change", renderDashboard);
-    document.getElementById("crmSortBy").addEventListener("change", renderDashboard);
   </script>
-  <style>
-    input[type="date"],
-    input[type="datetime-local"] {
-      -webkit-appearance: none;
-      min-height: 42px;
-      font-size: 13px !important;
-      line-height: normal;
-    }
-    input[type="date"]::-webkit-calendar-picker-indicator,
-    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-      filter: invert(1);
-      cursor: pointer;
-    }
-  </style>
 </head>
 
 <body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white flex overflow-x-hidden">
@@ -2775,7 +1307,7 @@
   <!-- 側邊欄抽屜遮罩 -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
-  <!-- 側邊抽屜導航欄 -->
+  <!-- 側邊抽屜導航欄 (員工視角完全不渲染管理員專屬按鈕) -->
   <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
@@ -2811,13 +1343,13 @@
           <span>任務派遣與回報</span>
         </button>
 
-        <!-- 管理員專屬：報表與營運分析 (預設 hidden) -->
+        <!-- 管理員專屬：報表與營運分析 (預設 hidden，員工端完全不顯示) -->
         <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
           <span>報表與營運分析</span>
         </button>
 
-        <!-- 管理員專屬：員工帳號管理 (預設 hidden) -->
+        <!-- 管理員專屬：員工帳號管理 (預設 hidden，員工端完全不顯示) -->
         <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           <span>員工與帳號管理</span>
@@ -3016,7 +1548,7 @@
               <button id="taskBtnClosed" onclick="setTaskFilter('closed')" class="px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition">已結案</button>
               <button id="taskBtnAll" onclick="setTaskFilter('all')" class="px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition">全部</button>
             </div>
-            <button id="adminCreateTaskBtn" onclick="openCreateTaskModal()" class="hidden px-3.5 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-950 whitespace-nowrap">
+            <button id="adminCreateTaskBtn" onclick="openCreateTaskModal()" class="px-3.5 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-950 whitespace-nowrap">
               <span>＋ 建立派遣任務</span>
             </button>
           </div>
@@ -3126,20 +1658,20 @@
 
       <!-- 管理員作戰待辦工作區 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
             <h4 class="text-xs font-bold text-white">等待上傳派車單名單 (管理員專區)</h4>
             <span class="text-[10px] text-blue-400">點擊直接上傳車單核對</span>
           </div>
-          <div class="overflow-x-auto max-h-64 overflow-y-auto scrollbar-thin">
-            <table class="w-full text-left min-w-[480px]">
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
               <thead>
-                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800 whitespace-nowrap">
-                  <th class="py-2.5 px-3.5">姓名</th>
-                  <th class="py-2.5 px-3.5">抵達時間</th>
-                  <th class="py-2.5 px-3.5">航班</th>
-                  <th class="py-2.5 px-3.5">專員</th>
-                  <th class="py-2.5 px-3.5 text-right">操作</th>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名</th>
+                  <th class="py-2 px-3">抵達時間</th>
+                  <th class="py-2 px-3">航班</th>
+                  <th class="py-2 px-3">專員</th>
+                  <th class="py-2 px-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody id="actionPendingDispatchBody"></tbody>
@@ -3147,19 +1679,19 @@
           </div>
         </div>
 
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
             <h4 class="text-xs font-bold text-white">資料未補齊客戶清單</h4>
             <span class="text-[10px] text-neutral-400">需專員聯繫催件</span>
           </div>
-          <div class="overflow-x-auto max-h-64 overflow-y-auto scrollbar-thin">
-            <table class="w-full text-left min-w-[480px]">
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
               <thead>
-                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800 whitespace-nowrap">
-                  <th class="py-2.5 px-3.5">姓名 (LINE)</th>
-                  <th class="py-2.5 px-3.5">抵達日</th>
-                  <th class="py-2.5 px-3.5">缺漏項目</th>
-                  <th class="py-2.5 px-3.5 text-right">操作</th>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名 (LINE)</th>
+                  <th class="py-2 px-3">抵達日</th>
+                  <th class="py-2 px-3">缺漏項目</th>
+                  <th class="py-2 px-3 text-right">操作</th>
                 </tr>
               </thead>
               <tbody id="actionIncompleteBody"></tbody>
@@ -3428,6 +1960,214 @@
       <button onclick="closeDispatchModal()" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-xl text-xs transition">
         完成並關閉
       </button>
+    </div>
+  </div>
+
+  <!-- 護照照片最高圖層燈箱 -->
+  <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+        <h3 id="passportModalTitle" class="text-sm font-bold text-white">貴賓護照原圖</h3>
+        <button onclick="closePassportPhotoModal()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
+      </div>
+      <div class="flex items-center justify-center bg-neutral-950 rounded-xl p-2 max-h-[75vh] overflow-auto">
+        <img id="passportModalImg" src="" alt="護照照片" class="max-h-[70vh] w-auto object-contain rounded-lg shadow-md" />
+      </div>
+      <div class="flex justify-end pt-1">
+        <button onclick="closePassportPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl transition">
+          關閉預覽
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 編輯 Drawer 彈窗 -->
+  <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
+      
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-white">編輯旅客資料與歷程</h3>
+          <div class="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
+            <span>分級標籤: <b id="drawerClientTag" class="text-red-400">-</b></span>
+            <span>|</span>
+            <span>已結案來訪: <b id="drawerVisitCount" class="text-white">0</b> 次</span>
+            <span>|</span>
+            <span>累積總積分: <b id="drawerTotalPoints" class="text-amber-400 font-mono">0</b> 點</span>
+          </div>
+        </div>
+        <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="flex-1 py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
+          展開客戶所有行程明細
+        </button>
+        <button id="drawerPassportPhotoBtn" onclick="openDrawerPassportPhoto()" class="hidden px-3 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">
+          查看護照原圖
+        </button>
+        <button id="drawerUploadPassportPhotoBtn" onclick="triggerDrawerUploadPassport()" class="hidden px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded-xl text-xs font-bold transition flex items-center gap-1">
+          補傳護照照片
+        </button>
+      </div>
+
+      <div id="historyDrawerSection" class="hidden mt-2 space-y-2 max-h-48 overflow-y-auto p-1">
+        <div id="historyListContainer" class="space-y-2"></div>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div class="bg-neutral-950 border border-red-950 p-2.5 rounded-xl space-y-1">
+            <label class="block text-red-400 font-bold">會員編號</label>
+            <input id="editMemberId" placeholder="例如：VIP-8801" class="w-full px-2.5 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white font-mono uppercase font-bold outline-none focus:border-red-500 text-xs" />
+          </div>
+          <div class="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl space-y-1">
+            <label class="block text-neutral-300 font-medium">推薦人姓名</label>
+            <input id="editReferrer" placeholder="推薦人姓名" class="w-full px-2.5 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white outline-none focus:border-red-500 text-xs" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">中文真實姓名</label>
+            <input id="editName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">護照英文姓名</label>
+            <input id="editEnglishName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs transition" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label id="editPassportLabel" class="block text-neutral-400 mb-1">護照號碼</label>
+            <input id="editPassport" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label id="editNationalIdLabel" class="block text-neutral-400 mb-1">身分證字號</label>
+            <input id="editNationalId" maxlength="10" placeholder="例如：A123456789" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs transition" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label id="editBirthdayLabel" class="block text-neutral-400 mb-1">出生年月日</label>
+            <input id="editBirthday" type="date" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">性別</label>
+            <select id="editGender" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
+              <option value="M">男 (Male)</option>
+              <option value="F">女 (Female)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
+          <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">去程航班代碼</label>
+            <input id="editAirline" placeholder="例：KE123" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">預計抵達濟州時間 (降落)</label>
+            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label id="editReturnAirlineLabel" class="block text-neutral-400 mb-1">回程航班代碼</label>
+            <input id="editReturnAirline" placeholder="例：KE124" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-neutral-400">離開濟州時間 (起飛)</label>
+              <label class="flex items-center gap-1 cursor-pointer select-none text-[11px] text-red-400 font-medium">
+                <input id="editDepartureUncertain" type="checkbox" class="w-3.5 h-3.5 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
+                <span>尚未確定 (暫定5天)</span>
+              </label>
+            </div>
+            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">停留晚數 <span class="text-neutral-500">(雙向連動)</span></label>
+            <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs font-bold font-mono transition" />
+          </div>
+          <div>
+            <label class="block text-amber-400 font-semibold mb-1">本次發放積分</label>
+            <input id="editPoints" type="text" inputmode="numeric" pattern="[0-9]*" oninput="this.value = this.value.replace(/[^0-9]/g, ''); onDrawerPointsInput();" placeholder="0" class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-400 font-bold outline-none focus:border-amber-500 font-mono text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">接待專員</label>
+            <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">處理狀態</label>
+            <select id="editStatus" class="w-full px-2 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
+              <option value="pending">待確認</option>
+              <option value="confirmed">已確認</option>
+              <option value="picked_up">已接機</option>
+              <option value="checked_in">已入住</option>
+              <option value="completed">已結案</option>
+              <option value="cancelled">已取消</option>
+              <option value="other">其他</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="statusOtherContainer" class="hidden">
+          <label class="block text-amber-400 font-semibold mb-1">其他狀態具體說明 <span class="text-[10px] text-neutral-500">(限 20 字以內)</span></label>
+          <input id="editStatusOtherNote" maxlength="20" placeholder="例如：等候改簽航班、客人自主退訂..." class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-300 outline-none focus:border-amber-500 text-xs transition" />
+        </div>
+
+        <div>
+          <label class="block text-amber-400 font-semibold mb-1">客戶需求 / 行程特殊備註</label>
+          <textarea id="editNote" rows="3" placeholder="例如：加嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-amber-500 placeholder:text-neutral-600 leading-relaxed text-xs transition"></textarea>
+        </div>
+
+        <div class="border-t border-neutral-800 pt-2.5 space-y-1.5">
+          <label class="block text-amber-400 font-semibold text-[11px]">異動與合併紀錄 (Audit Log - 唯讀防竄改)</label>
+          <div id="drawerAuditLogContainer" class="bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 space-y-2 max-h-32 overflow-y-auto"></div>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-2 border-t border-neutral-800">
+        <button onclick="closeEditDrawer()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium transition">取消</button>
+        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950 transition">儲存變更 (Enter)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 續住加訂彈窗 -->
+  <div id="extendModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+        <h3 class="text-sm font-bold text-white">快速辦理續住加訂</h3>
+        <button onclick="closeExtendModal()" class="text-neutral-400 hover:text-white text-base font-bold p-1">✕</button>
+      </div>
+      <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數：</p>
+      <div>
+        <label class="block text-xs font-semibold text-neutral-300 mb-1.5">加訂住宿晚數</label>
+        <select id="extendNightsSelect" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500 transition">
+          <option value="1">續訂 +1 晚</option>
+          <option value="2">續訂 +2 晚</option>
+          <option value="3">續訂 +3 晚</option>
+          <option value="4" selected>續訂 +4 晚</option>
+          <option value="5">續訂 +5 晚</option>
+        </select>
+      </div>
+      <div class="flex gap-2 pt-3 border-t border-neutral-800">
+        <button onclick="closeExtendModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium transition">取消</button>
+        <button onclick="confirmExtend()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950 transition">確認延長</button>
+      </div>
     </div>
   </div>
 
