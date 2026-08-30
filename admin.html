@@ -159,14 +159,15 @@
       const navAnalyticsBtn = document.getElementById("navAnalyticsBtn");
       const adminCreateTaskBtn = document.getElementById("adminCreateTaskBtn");
 
+      // 嚴格權限隔離：員工視角徹底移除管理員按鈕
       if (currentUser.role === 'admin') {
-        navUsersBtn.style.display = "flex";
-        navAnalyticsBtn.style.display = "flex";
-        adminCreateTaskBtn.style.display = "flex";
+        navUsersBtn.classList.remove("hidden");
+        navAnalyticsBtn.classList.remove("hidden");
+        if (adminCreateTaskBtn) adminCreateTaskBtn.classList.remove("hidden");
       } else {
-        navUsersBtn.style.display = "none";
-        navAnalyticsBtn.style.display = "none";
-        adminCreateTaskBtn.style.display = "none";
+        navUsersBtn.classList.add("hidden");
+        navAnalyticsBtn.classList.add("hidden");
+        if (adminCreateTaskBtn) adminCreateTaskBtn.classList.add("hidden");
         if (activeTab === 'analytics' || activeTab === 'users') {
           switchTab('roster');
         }
@@ -393,7 +394,6 @@
       return str.substring(0, visibleChars) + '****';
     }
 
-    // 精簡航空公司名稱（避免表格內折行）
     function formatFlightWithAirline(flightNo, compact = false) {
       if (!flightNo) return '-';
       const clean = flightNo.trim().toUpperCase();
@@ -401,7 +401,7 @@
 
       const airlineMap = {
         'KE': '大韓', 'OZ': '韓亞', '7C': '濟州', 'TW': '德威',
-        'LJ': '真航空', 'BX': '釜山', 'RS': '首爾', 'ZE': '易斯達',
+        'LJ': '真航', 'BX': '釜山', 'RS': '首爾', 'ZE': '易斯達',
         'CI': '華航', 'BR': '長榮', 'IT': '虎航', 'JX': '星宇',
         'CX': '國泰', 'UO': '快運', 'HX': '港航', 'MU': '東航',
         'CZ': '南航', 'CA': '國航', 'HO': '吉祥', '9C': '春秋',
@@ -411,7 +411,7 @@
 
       for (const [code, name] of Object.entries(airlineMap)) {
         if (prefix.startsWith(code)) {
-          return compact ? `${clean} ${name}` : `${clean} (${name})`;
+          return compact ? `${clean} (${name})` : `${clean} (${name})`;
         }
       }
       return clean;
@@ -1344,10 +1344,7 @@
     };
 
     window.openCreateTaskModal = () => {
-      if (currentUser?.role !== 'admin') {
-        alert("僅總管理員可建立派遣任務。");
-        return;
-      }
+      if (currentUser?.role !== 'admin') return;
       document.getElementById("taskTitleInput").value = "";
       document.getElementById("taskDescInput").value = "";
       document.getElementById("taskAssigneeInput").value = "";
@@ -1697,7 +1694,7 @@
           pendingDispatchList.push(g);
         }
 
-        const isMissing = !g.passportImage || !g.passport || !g.nationalId || !g.birthday || !g.returnAirline;
+        const isMissing = !g.passportImage || !g.passport || !g.nationalId || !g.birthday || (!g.returnAirline && !g.isDepartureUncertain);
         if (isMissing) {
           incompleteDataList.push(g);
         }
@@ -1879,7 +1876,6 @@
       }).join("");
     }
 
-    // 完美防折行表格渲染：派車單清單
     function renderActionPendingDispatch(list) {
       const container = document.getElementById("actionPendingDispatchBody");
       if (list.length === 0) {
@@ -1904,7 +1900,6 @@
       `).join("");
     }
 
-    // 完美防折行表格渲染：資料缺漏清單
     function renderActionIncompleteData(list) {
       const container = document.getElementById("actionIncompleteBody");
       if (list.length === 0) {
@@ -2613,6 +2608,7 @@
       }
     };
 
+    // 側邊欄切換 Tab（修復 classList 穩定切換，杜絕 JS 崩潰）
     window.switchTab = (tab) => {
       if ((tab === 'analytics' || tab === 'users') && currentUser?.role !== 'admin') {
         alert("此分頁僅限總管理員查閱。");
@@ -2628,6 +2624,7 @@
         overlay.classList.add("hidden");
       }
 
+      // 隱藏所有檢視
       document.getElementById("rosterView").classList.add("hidden");
       document.getElementById("housekeepingView").classList.add("hidden");
       document.getElementById("crmView").classList.add("hidden");
@@ -2638,45 +2635,51 @@
       document.getElementById("rosterStatsGrid").classList.add("hidden");
       document.getElementById("housekeepingStatsGrid").classList.add("hidden");
 
-      const defaultNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition";
-      const activeNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition";
+      // 重設所有側邊欄按鈕高亮
+      const navBtns = [
+        { id: "navRosterBtn", tab: "roster" },
+        { id: "navHousekeepingBtn", tab: "housekeeping" },
+        { id: "navCrmBtn", tab: "crm" },
+        { id: "navTasksBtn", tab: "tasks" },
+        { id: "navUsersBtn", tab: "users" },
+        { id: "navAnalyticsBtn", tab: "analytics" }
+      ];
 
-      document.getElementById("navRosterBtn").className = defaultNavClass;
-      document.getElementById("navHousekeepingBtn").className = defaultNavClass;
-      document.getElementById("navCrmBtn").className = defaultNavClass;
-      document.getElementById("navTasksBtn").className = defaultNavClass;
-      document.getElementById("navUsersBtn").className = defaultNavClass;
-      document.getElementById("navAnalyticsBtn").className = defaultNavClass;
+      navBtns.forEach(item => {
+        const btn = document.getElementById(item.id);
+        if (!btn) return;
+        if (item.tab === tab) {
+          btn.classList.add("bg-red-600/90", "text-white", "shadow-lg", "shadow-red-950/60", "font-bold");
+          btn.classList.remove("text-neutral-400", "hover:bg-neutral-800", "font-medium");
+        } else {
+          btn.classList.remove("bg-red-600/90", "text-white", "shadow-lg", "shadow-red-950/60", "font-bold");
+          btn.classList.add("text-neutral-400", "hover:bg-neutral-800", "font-medium");
+        }
+      });
 
       const pageTitle = document.getElementById("currentPageTitle");
 
       if (tab === 'roster') {
         document.getElementById("rosterView").classList.remove("hidden");
         document.getElementById("rosterStatsGrid").classList.remove("hidden");
-        document.getElementById("navRosterBtn").className = activeNavClass;
         pageTitle.innerText = "即時營運行程";
       } else if (tab === 'housekeeping') {
         document.getElementById("housekeepingView").classList.remove("hidden");
         document.getElementById("housekeepingStatsGrid").classList.remove("hidden");
-        document.getElementById("navHousekeepingBtn").className = activeNavClass;
         pageTitle.innerText = "房務與續訂警戒";
       } else if (tab === 'crm') {
         document.getElementById("crmView").classList.remove("hidden");
-        document.getElementById("navCrmBtn").className = activeNavClass;
         pageTitle.innerText = "貴賓 CRM 客戶庫";
       } else if (tab === 'tasks') {
         document.getElementById("tasksView").classList.remove("hidden");
-        document.getElementById("navTasksBtn").className = activeNavClass;
         pageTitle.innerText = "任務派遣與回報";
         renderTasksView();
       } else if (tab === 'analytics') {
         document.getElementById("analyticsView").classList.remove("hidden");
-        document.getElementById("navAnalyticsBtn").className = activeNavClass;
         pageTitle.innerText = "報表與營運分析";
         renderAnalyticsDashboard();
       } else if (tab === 'users') {
         document.getElementById("usersView").classList.remove("hidden");
-        document.getElementById("navUsersBtn").className = activeNavClass;
         pageTitle.innerText = "員工與帳號權限管理";
       }
     };
@@ -2808,13 +2811,13 @@
           <span>任務派遣與回報</span>
         </button>
 
-        <!-- 管理員專屬：報表與營運分析 (預設 hidden，員工端完全不顯示) -->
+        <!-- 管理員專屬：報表與營運分析 (預設 hidden) -->
         <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
           <span>報表與營運分析</span>
         </button>
 
-        <!-- 管理員專屬：員工帳號管理 (預設 hidden，員工端完全不顯示) -->
+        <!-- 管理員專屬：員工帳號管理 (預設 hidden) -->
         <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           <span>員工與帳號管理</span>
@@ -3013,7 +3016,7 @@
               <button id="taskBtnClosed" onclick="setTaskFilter('closed')" class="px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition">已結案</button>
               <button id="taskBtnAll" onclick="setTaskFilter('all')" class="px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition">全部</button>
             </div>
-            <button id="adminCreateTaskBtn" onclick="openCreateTaskModal()" class="px-3.5 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-950 whitespace-nowrap">
+            <button id="adminCreateTaskBtn" onclick="openCreateTaskModal()" class="hidden px-3.5 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-950 whitespace-nowrap">
               <span>＋ 建立派遣任務</span>
             </button>
           </div>
@@ -3121,7 +3124,7 @@
         </div>
       </div>
 
-      <!-- 管理員作戰待辦工作區 (加強寬度與防換行保護) -->
+      <!-- 管理員作戰待辦工作區 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
