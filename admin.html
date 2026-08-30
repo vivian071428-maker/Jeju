@@ -37,7 +37,7 @@
     let unmaskedIds = new Set();
 
     // 報表時間範圍 (預設近 30 天)
-    let analyticsRangeType = '30d'; // 'today' | '7d' | '30d' | 'month' | '6m' | 'all' | 'custom'
+    let analyticsRangeType = '30d'; 
     let analyticsStartDate = '';
     let analyticsEndDate = '';
 
@@ -155,12 +155,16 @@
       authOverlay.classList.add("hidden");
       document.getElementById("currentLoggedUserDisplay").innerText = `${currentUser.name} (${currentUser.role === 'admin' ? '管理員' : '接待專員'})`;
       
+      // 權限控管：僅 admin 顯示報表與員工管理
       if (currentUser.role === 'admin') {
         document.getElementById("navUsersBtn").classList.remove("hidden");
         document.getElementById("navAnalyticsBtn").classList.remove("hidden");
       } else {
         document.getElementById("navUsersBtn").classList.add("hidden");
         document.getElementById("navAnalyticsBtn").classList.add("hidden");
+        if (activeTab === 'analytics' || activeTab === 'users') {
+          switchTab('roster');
+        }
       }
 
       initAnalyticsDates();
@@ -243,7 +247,7 @@
       onValue(guestsRef, (snapshot) => {
         allGuests = snapshot.val() || {};
         renderDashboard();
-        if (activeTab === 'analytics') {
+        if (activeTab === 'analytics' && currentUser?.role === 'admin') {
           renderAnalyticsDashboard();
         }
       });
@@ -865,7 +869,6 @@
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
           : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
 
-        // 派車單按鈕 (若已核驗且有圖，可直接點擊預覽大圖；若無則顯示核對上傳按鈕)
         const dispatchVerifyBadge = g.dispatchVerified
           ? `<div class="flex items-center gap-1">
                <button onclick="viewDispatchPhoto('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單</button>
@@ -1277,7 +1280,6 @@
           document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
           document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與登記完全吻合，原圖已同步留存於後台供接機查閱！";
           
-          // 自動儲存派車單原圖並標記已核驗
           await update(ref(db, `guests/${dispatchTargetGuestId}`), {
             dispatchVerified: true,
             dispatchImage: compressedBase64
@@ -1302,7 +1304,7 @@
     };
 
     // ==========================================
-    // 9. 報表與營運分析 (Google Analytics 級動態計算與圖表)
+    // 9. 報表與營運分析 (低飽和高階商務色調)
     // ==========================================
     function initAnalyticsDates() {
       const now = new Date();
@@ -1376,19 +1378,20 @@
       Object.entries(btns).forEach(([key, el]) => {
         if (!el) return;
         if (analyticsRangeType === key) {
-          el.className = "px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs transition shadow-sm";
+          el.className = "px-3 py-1.5 rounded-xl bg-neutral-700 text-white font-bold text-xs transition shadow-sm border border-neutral-600";
         } else {
-          el.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition";
+          el.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition";
         }
       });
     }
 
     function renderAnalyticsDashboard() {
+      if (currentUser?.role !== 'admin') return;
+
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
       const nowTs = Date.now();
       const profileMap = buildClientProfileMap(guestList, nowTs);
 
-      // 依時間區間篩選名單
       const startTs = analyticsStartDate ? new Date(analyticsStartDate + "T00:00:00").getTime() : 0;
       const endTs = analyticsEndDate ? new Date(analyticsEndDate + "T23:59:59").getTime() : Infinity;
 
@@ -1397,7 +1400,6 @@
         return ts >= startTs && ts <= endTs;
       });
 
-      // 1. KPI 聚合計算
       const totalCount = rangeGuests.length;
       let totalStayDays = 0;
       let vipCount = 0;
@@ -1425,39 +1427,32 @@
         else if (p.clientType === 'short') shortCount++;
         else newCount++;
 
-        // 待傳派車單
         if (!g.dispatchVerified && g.status !== 'cancelled' && g.status !== 'completed') {
           pendingDispatchList.push(g);
         }
 
-        // 資料未補齊
         const isMissing = !g.passportImage || !g.passport || !g.nationalId || !g.birthday || !g.returnAirline;
         if (isMissing) {
           incompleteDataList.push(g);
         }
 
-        // 異常單
         if (g.status === 'cancelled') abnormalCount++;
 
-        // 專員排行
         const staffName = g.staff ? g.staff.trim() : '未指派專員';
         if (!staffMap[staffName]) staffMap[staffName] = { count: 0, points: 0 };
         staffMap[staffName].count += 1;
         staffMap[staffName].points += (parseInt(g.points, 10) || 0);
 
-        // 渠道 UTM 統計
         const rawUtm = g.utmSource || g.referrer || '直接登記 (Direct)';
         const cleanUtm = rawUtm.trim() || '直接登記 (Direct)';
         utmMap[cleanUtm] = (utmMap[cleanUtm] || 0) + 1;
 
-        // 趨勢統計 (按日期)
         const dateKey = g.arrival ? g.arrival.split('T')[0] : (g.createdAt ? new Date(g.createdAt).toISOString().split('T')[0] : '其他');
         trendDateMap[dateKey] = (trendDateMap[dateKey] || 0) + 1;
       });
 
       const avgStay = totalCount > 0 ? (totalStayDays / totalCount).toFixed(1) : '0';
 
-      // 填入 KPI 卡片
       document.getElementById("kpiTotalGuests").innerText = totalCount;
       document.getElementById("kpiAvgStay").innerText = avgStay;
       document.getElementById("kpiVipCount").innerText = vipCount;
@@ -1465,17 +1460,16 @@
       document.getElementById("kpiIncompleteData").innerText = incompleteDataList.length;
       document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
 
-      // 渲染圖表
       renderTrendChart(trendDateMap);
       renderTierChart(vipCount, shortCount, newCount);
       renderUtmChart(utmMap);
       renderStaffLeaderboard(staffMap);
 
-      // 渲染作戰工作區 (待傳派車單清單)
       renderActionPendingDispatch(pendingDispatchList);
       renderActionIncompleteData(incompleteDataList);
     }
 
+    // 圖表 1：走勢圖（低飽和酒紅）
     function renderTrendChart(dateMap) {
       const ctx = document.getElementById("chartTrend").getContext("2d");
       const sortedDates = Object.keys(dateMap).sort();
@@ -1490,9 +1484,11 @@
           datasets: [{
             label: '抵達旅客數',
             data: counts.length > 0 ? counts : [0],
-            backgroundColor: 'rgba(239, 68, 68, 0.85)',
-            borderColor: '#ef4444',
-            borderRadius: 6
+            backgroundColor: 'rgba(185, 28, 28, 0.75)',
+            borderColor: '#991b1b',
+            borderWidth: 1,
+            borderRadius: 6,
+            maxBarThickness: 36
           }]
         },
         options: {
@@ -1503,18 +1499,19 @@
           },
           scales: {
             x: {
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#888', font: { size: 10 } }
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#737373', font: { size: 10 } }
             },
             y: {
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#888', precision: 0, font: { size: 10 } }
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#737373', precision: 0, font: { size: 10 } }
             }
           }
         }
       });
     }
 
+    // 圖表 2：客群佔比（低飽和莫蘭迪灰藍/陶土紅/沉穩炭灰）
     function renderTierChart(vip, short, newC) {
       const ctx = document.getElementById("chartTier").getContext("2d");
       if (chartTierInstance) chartTierInstance.destroy();
@@ -1525,8 +1522,9 @@
           labels: ['長期 VIP 客戶', '短期客戶', '新客 / 單次'],
           datasets: [{
             data: [vip, short, newC],
-            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6'],
-            borderWidth: 0
+            backgroundColor: ['#b91c1c', '#a8a29e', '#64748b'],
+            borderColor: '#171717',
+            borderWidth: 2
           }]
         },
         options: {
@@ -1535,14 +1533,15 @@
           plugins: {
             legend: {
               position: 'bottom',
-              labels: { color: '#ccc', font: { size: 11 }, boxWidth: 12 }
+              labels: { color: '#a3a3a3', font: { size: 11 }, boxWidth: 10, padding: 12 }
             }
           },
-          cutout: '70%'
+          cutout: '72%'
         }
       });
     }
 
+    // 圖表 3：渠道 UTM 統計（低飽和石板藍灰）
     function renderUtmChart(utmMap) {
       const ctx = document.getElementById("chartUtm").getContext("2d");
       const labels = Object.keys(utmMap);
@@ -1557,8 +1556,11 @@
           datasets: [{
             axis: 'y',
             data: data.length > 0 ? data : [0],
-            backgroundColor: 'rgba(245, 158, 11, 0.85)',
-            borderRadius: 6
+            backgroundColor: 'rgba(100, 116, 139, 0.75)',
+            borderColor: '#475569',
+            borderWidth: 1,
+            borderRadius: 6,
+            maxBarThickness: 28
           }]
         },
         options: {
@@ -1570,18 +1572,19 @@
           },
           scales: {
             x: {
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#888', precision: 0, font: { size: 10 } }
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#737373', precision: 0, font: { size: 10 } }
             },
             y: {
-              grid: { color: 'rgba(255,255,255,0.05)' },
-              ticks: { color: '#ccc', font: { size: 11 } }
+              grid: { color: 'rgba(255,255,255,0.04)' },
+              ticks: { color: '#d4d4d4', font: { size: 11 } }
             }
           }
         }
       });
     }
 
+    // 圖表 4：專員處理量排行榜
     function renderStaffLeaderboard(staffMap) {
       const container = document.getElementById("staffLeaderboardContainer");
       const sorted = Object.entries(staffMap).sort((a, b) => b[1].count - a[1].count);
@@ -1600,15 +1603,15 @@
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2">
                 <span class="font-mono text-neutral-500 font-bold w-4">#${idx + 1}</span>
-                <span class="font-bold text-white">${name}</span>
+                <span class="font-bold text-neutral-200">${name}</span>
               </div>
-              <div class="font-mono text-neutral-300">
-                <b class="text-amber-400 font-black text-sm">${data.count}</b> 單 
+              <div class="font-mono text-neutral-400">
+                <b class="text-neutral-200 font-bold text-sm">${data.count}</b> 單 
                 <span class="text-[10px] text-neutral-500 ml-1">(${data.points} 積分)</span>
               </div>
             </div>
-            <div class="w-full bg-neutral-950 rounded-full h-2 overflow-hidden border border-neutral-800">
-              <div class="bg-red-600 h-full rounded-full transition-all duration-500" style="width: ${percent}%"></div>
+            <div class="w-full bg-neutral-950 rounded-full h-1.5 overflow-hidden border border-neutral-800">
+              <div class="bg-neutral-600 h-full rounded-full transition-all duration-500" style="width: ${percent}%"></div>
             </div>
           </div>
         `;
@@ -1618,7 +1621,7 @@
     function renderActionPendingDispatch(list) {
       const container = document.getElementById("actionPendingDispatchBody");
       if (list.length === 0) {
-        container.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-neutral-500 text-xs">太棒了！所選區間內所有旅客派車單皆已上傳核驗完成。</td></tr>`;
+        container.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-neutral-500 text-xs">所選區間內所有旅客派車單皆已上傳核驗完成。</td></tr>`;
         return;
       }
 
@@ -1626,10 +1629,10 @@
         <tr class="border-b border-neutral-800 hover:bg-neutral-900/60 text-xs">
           <td class="py-3 px-3.5 font-bold text-white">${g.name || '未填'} <span class="text-neutral-400 font-normal">(${g.englishName || '-'})</span></td>
           <td class="py-3 px-3.5 font-mono text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</td>
-          <td class="py-3 px-3.5 font-mono text-red-400 font-bold">${formatFlightWithAirline(g.airline)}</td>
+          <td class="py-3 px-3.5 font-mono text-neutral-300 font-bold">${formatFlightWithAirline(g.airline)}</td>
           <td class="py-3 px-3.5 text-neutral-300">${g.staff || '未指派'}</td>
           <td class="py-3 px-3.5 text-right">
-            <button onclick="triggerDispatchVerify('${g.id}')" class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition shadow-md shadow-red-950">
+            <button onclick="triggerDispatchVerify('${g.id}')" class="px-3 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 font-bold rounded-lg text-xs transition">
               上傳派車單核對
             </button>
           </td>
@@ -1657,7 +1660,7 @@
             <td class="py-3 px-3.5 font-bold text-white">${g.name || '未填'} <span class="text-neutral-400 font-mono">(${g.lineNickname || '無LINE'})</span></td>
             <td class="py-3 px-3.5 font-mono text-neutral-300">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
             <td class="py-3 px-3.5">
-              <span class="text-amber-400 font-medium">${missingItems.join("、")}</span>
+              <span class="text-neutral-400 font-medium">${missingItems.join("、")}</span>
             </td>
             <td class="py-3 px-3.5 text-right">
               <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-semibold transition">
@@ -1696,15 +1699,15 @@
       document.getElementById("mergeMasterInfo").innerHTML = `
         <div>姓名: <b class="text-white">${master.name || '-'}</b> (${master.englishName || '-'})</div>
         <div>護照: <span class="font-mono">${master.passport || '-'}</span> | 身分證: <span class="font-mono">${master.nationalId || '-'}</span></div>
-        <div>LINE: <span class="text-red-400">${master.lineNickname || '-'}</span> | 電話: ${master.phone || master.tel || '-'}</div>
-        <div>備註: <span class="text-amber-300/90">${master.note || '無'}</span></div>
+        <div>LINE: <span class="text-neutral-300">${master.lineNickname || '-'}</span> | 電話: ${master.phone || master.tel || '-'}</div>
+        <div>備註: <span class="text-neutral-400">${master.note || '無'}</span></div>
       `;
 
       document.getElementById("mergeSecondaryInfo").innerHTML = `
         <div>姓名: <b class="text-white">${secondary.name || '-'}</b> (${secondary.englishName || '-'})</div>
         <div>護照: <span class="font-mono">${secondary.passport || '-'}</span> | 身分證: <span class="font-mono">${secondary.nationalId || '-'}</span></div>
-        <div>LINE: <span class="text-red-400">${secondary.lineNickname || '-'}</span> | 電話: ${secondary.phone || secondary.tel || '-'}</div>
-        <div>備註: <span class="text-amber-300/90">${secondary.note || '無'}</span></div>
+        <div>LINE: <span class="text-neutral-300">${secondary.lineNickname || '-'}</span> | 電話: ${secondary.phone || secondary.tel || '-'}</div>
+        <div>備註: <span class="text-neutral-400">${secondary.note || '無'}</span></div>
       `;
 
       document.getElementById("mergeFormName").value = master.name || secondary.name || "";
@@ -1723,7 +1726,7 @@
       const imgStatus = document.getElementById("mergePassportImgStatus");
       if (mergeCombinedPassportImg) {
         imgStatus.innerText = "已自動整合最佳護照照片";
-        imgStatus.className = "text-emerald-400 font-bold";
+        imgStatus.className = "text-neutral-300 font-medium";
       } else {
         imgStatus.innerText = "雙方皆無護照照片";
         imgStatus.className = "text-neutral-500 font-normal";
@@ -1796,7 +1799,6 @@
       }
     };
 
-    // 匯出 CSV
     window.exportToCSV = () => {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
       const now = new Date();
@@ -2005,7 +2007,7 @@
           <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-2.5 text-xs space-y-1">
             <div class="flex items-center justify-between text-neutral-300 font-medium">
               <span>歷史 #${idx + 1}：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '未定'}</span>
-              <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
+              <span class="text-neutral-200 font-bold font-mono">+${v.points || 0} 點</span>
             </div>
           </div>
         `).join("");
@@ -2022,8 +2024,8 @@
         auditContainer.innerHTML = `<div class="text-neutral-500 text-xs py-1">此客戶尚無任何合併或異動紀錄。</div>`;
       } else {
         auditContainer.innerHTML = logs.map(log => `
-          <div class="border-l-2 border-amber-500/80 pl-3 py-1 space-y-0.5 text-xs">
-            <div class="text-amber-400/90 font-mono text-[11px]">${log.timeStr} 由 <b class="text-white">${log.operator}</b> 操作</div>
+          <div class="border-l-2 border-neutral-600 pl-3 py-1 space-y-0.5 text-xs">
+            <div class="text-neutral-400 font-mono text-[11px]">${log.timeStr} 由 <b class="text-white">${log.operator}</b> 操作</div>
             <div class="text-neutral-300">${log.description}</div>
           </div>
         `).join("");
@@ -2273,6 +2275,12 @@
     };
 
     window.switchTab = (tab) => {
+      // 權限防護：非管理員不可切入報表或員工管理
+      if ((tab === 'analytics' || tab === 'users') && currentUser?.role !== 'admin') {
+        alert("此分頁僅限總管理員查閱。");
+        return;
+      }
+
       activeTab = tab;
       
       const sidebar = document.getElementById("sidebarNav");
@@ -2375,7 +2383,7 @@
 
   <!-- 派車單辨識 Loading -->
   <div id="dispatchLoadingOverlay" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 z-[80] space-y-3">
-    <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+    <div class="w-12 h-12 border-4 border-neutral-700 border-t-neutral-300 rounded-full animate-spin"></div>
     <div class="text-sm font-bold text-white">正在解析派車單截圖與核對英文姓名...</div>
     <div class="text-xs text-neutral-400">系統正在比對頂部預約人資訊</div>
   </div>
@@ -2449,11 +2457,13 @@
           <span>貴賓 CRM 客戶庫</span>
         </button>
 
+        <!-- 管理員專屬：報表與營運分析 -->
         <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
           <span>報表與營運分析</span>
         </button>
 
+        <!-- 管理員專屬：員工帳號管理 -->
         <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           <span>員工與帳號管理</span>
@@ -2635,7 +2645,7 @@
       <div id="crmContainer" class="space-y-3"></div>
     </div>
 
-    <!-- 分頁 4: 報表與營運分析 (Google Analytics 級時間篩選與動態 BI) -->
+    <!-- 分頁 4: 報表與營運分析 (僅限總管理員查看) -->
     <div id="analyticsView" class="hidden space-y-5">
       
       <!-- GA 級時間控制器 -->
@@ -2647,20 +2657,20 @@
           </div>
           
           <div class="flex items-center gap-1.5 flex-wrap">
-            <button id="btnRangeToday" onclick="setAnalyticsRange('today')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">今日</button>
-            <button id="btnRange7d" onclick="setAnalyticsRange('7d')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">近 7 天</button>
-            <button id="btnRange30d" onclick="setAnalyticsRange('30d')" class="px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs transition shadow-sm">近 30 天</button>
-            <button id="btnRangeMonth" onclick="setAnalyticsRange('month')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">本月</button>
-            <button id="btnRange6m" onclick="setAnalyticsRange('6m')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">近 6 個月</button>
-            <button id="btnRangeAll" onclick="setAnalyticsRange('all')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">全部歷史</button>
+            <button id="btnRangeToday" onclick="setAnalyticsRange('today')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition">今日</button>
+            <button id="btnRange7d" onclick="setAnalyticsRange('7d')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition">近 7 天</button>
+            <button id="btnRange30d" onclick="setAnalyticsRange('30d')" class="px-3 py-1.5 rounded-xl bg-neutral-700 text-white font-bold text-xs transition shadow-sm border border-neutral-600">近 30 天</button>
+            <button id="btnRangeMonth" onclick="setAnalyticsRange('month')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition">本月</button>
+            <button id="btnRange6m" onclick="setAnalyticsRange('6m')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition">近 6 個月</button>
+            <button id="btnRangeAll" onclick="setAnalyticsRange('all')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition">全部歷史</button>
           </div>
         </div>
 
         <div class="flex items-center gap-2 pt-2 border-t border-neutral-800 text-xs">
           <span class="text-neutral-400 font-medium">自訂起訖：</span>
-          <input id="analyticsStartInput" type="date" onchange="onCustomDateChange()" class="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 font-mono text-xs" />
+          <input id="analyticsStartInput" type="date" onchange="onCustomDateChange()" class="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 font-mono text-xs" />
           <span class="text-neutral-500">至</span>
-          <input id="analyticsEndInput" type="date" onchange="onCustomDateChange()" class="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 font-mono text-xs" />
+          <input id="analyticsEndInput" type="date" onchange="onCustomDateChange()" class="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 font-mono text-xs" />
         </div>
       </div>
 
@@ -2676,11 +2686,11 @@
         </div>
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">VIP 長期客戶數</div>
-          <div id="kpiVipCount" class="text-xl sm:text-2xl font-black text-red-400 font-mono">0</div>
+          <div id="kpiVipCount" class="text-xl sm:text-2xl font-black text-neutral-200 font-mono">0</div>
         </div>
-        <div class="bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 space-y-1">
-          <div class="text-[11px] text-amber-400 font-medium">等待上傳派車單</div>
-          <div id="kpiPendingDispatch" class="text-xl sm:text-2xl font-black text-amber-400 font-mono">0</div>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-300 font-medium">等待上傳派車單</div>
+          <div id="kpiPendingDispatch" class="text-xl sm:text-2xl font-black text-neutral-100 font-mono">0</div>
         </div>
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">資料未補齊名單</div>
@@ -2688,16 +2698,16 @@
         </div>
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">異常/取消數量</div>
-          <div id="kpiAbnormalCount" class="text-xl sm:text-2xl font-black text-rose-400 font-mono">0</div>
+          <div id="kpiAbnormalCount" class="text-xl sm:text-2xl font-black text-neutral-400 font-mono">0</div>
         </div>
       </div>
 
-      <!-- 4 大核心圖表 (2x2 矩陣) -->
+      <!-- 4 大核心圖表 (沉穩莫蘭迪低飽和色系) -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <!-- 圖表 1: 走勢圖 -->
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-white">旅客到訪走勢趨勢圖</h4>
+            <h4 class="text-xs font-bold text-neutral-200">旅客到訪走勢趨勢圖</h4>
             <span class="text-[10px] text-neutral-500">按日/按月統計</span>
           </div>
           <div class="h-60">
@@ -2708,8 +2718,8 @@
         <!-- 圖表 2: 客群佔比 -->
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-white">客群結構分級佔比 (新客 / 短期 / VIP)</h4>
-            <span class="text-[10px] text-neutral-500">忠誠度分析</span>
+            <h4 class="text-xs font-bold text-neutral-200">客群結構分級佔比</h4>
+            <span class="text-[10px] text-neutral-500">忠誠度結構</span>
           </div>
           <div class="h-60">
             <canvas id="chartTier"></canvas>
@@ -2719,7 +2729,7 @@
         <!-- 圖表 3: 渠道 UTM 統計 -->
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-white">導流渠道與推薦人來源 (UTM 轉換)</h4>
+            <h4 class="text-xs font-bold text-neutral-200">導流渠道與推薦人來源 (UTM 轉換)</h4>
             <span class="text-[10px] text-neutral-500">進單來源排名</span>
           </div>
           <div class="h-60">
@@ -2730,7 +2740,7 @@
         <!-- 圖表 4: 專員處理量排行榜 -->
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-white">接待專員處理量與積分排行榜</h4>
+            <h4 class="text-xs font-bold text-neutral-200">接待專員處理量與積分排行榜</h4>
             <span class="text-[10px] text-neutral-500">業績即時榜</span>
           </div>
           <div id="staffLeaderboardContainer" class="space-y-3 h-60 overflow-y-auto pr-1"></div>
@@ -2743,7 +2753,7 @@
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
             <h4 class="text-xs font-bold text-white">等待上傳派車單名單 (管理員專區)</h4>
-            <span class="text-[10px] text-amber-400">點擊直接上傳車單核對</span>
+            <span class="text-[10px] text-neutral-400">點擊直接上傳車單核對</span>
           </div>
           <div class="overflow-x-auto max-h-64 overflow-y-auto">
             <table class="w-full text-left">
@@ -2808,7 +2818,7 @@
 
   </main>
 
-  <!-- 派車單原圖燈箱 (z-[70]) -->
+  <!-- 派車單原圖燈箱 -->
   <div id="dispatchPhotoModal" onclick="if(event.target === this) closeDispatchPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -3175,7 +3185,7 @@
 
         <!-- 唯讀稽核操作紀錄 (Audit Log) -->
         <div class="border-t border-neutral-800 pt-2.5 space-y-1.5">
-          <label class="block text-amber-400 font-semibold text-[11px]">異動與合併紀錄 (Audit Log - 唯讀防竄改)</label>
+          <label class="block text-neutral-400 font-semibold text-[11px]">異動與合併紀錄 (Audit Log - 唯讀防竄改)</label>
           <div id="drawerAuditLogContainer" class="bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 space-y-2 max-h-32 overflow-y-auto"></div>
         </div>
       </div>
