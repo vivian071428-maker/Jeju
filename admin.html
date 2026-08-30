@@ -197,7 +197,7 @@
     checkSavedSession();
 
     // ==========================================
-    // 介面與導航控制函式
+    // 側邊欄與視圖切換
     // ==========================================
     window.toggleSidebar = () => {
       const sidebar = document.getElementById("sidebarNav");
@@ -236,7 +236,6 @@
       const pageTitle = document.getElementById("currentPageTitle");
       if (pageTitle) pageTitle.innerText = titleMap[tab] || '後台管理';
 
-      // 側邊欄狀態高亮
       ['navRosterBtn', 'navHousekeepingBtn', 'navCrmBtn', 'navTasksBtn', 'navAnalyticsBtn', 'navUsersBtn'].forEach(btnId => {
         const btn = document.getElementById(btnId);
         if (!btn) return;
@@ -256,6 +255,9 @@
       }
 
       renderDashboard();
+      if (tab === 'analytics' && currentUser?.role === 'admin') {
+        renderAnalyticsDashboard();
+      }
     };
 
     window.setRosterFilter = (f) => {
@@ -289,7 +291,7 @@
       renderDashboard();
     };
 
-    // 搜尋與下拉聯動監聽
+    // 搜尋監聽
     document.getElementById("searchInput")?.addEventListener("input", () => renderDashboard());
     document.getElementById("unifiedFilterSelect")?.addEventListener("change", (e) => {
       const isRef = e.target.value === 'referrer';
@@ -361,7 +363,6 @@
       }
     };
 
-    // 資料庫即時監聽
     function loadDatabaseListener() {
       const guestsRef = ref(db, "guests");
       onValue(guestsRef, (snapshot) => {
@@ -389,7 +390,7 @@
       });
     }
 
-    // 員工管理模組
+    // 員工帳號管理
     window.openAddUserModal = () => {
       document.getElementById("newUserName").value = "";
       document.getElementById("newUserEmail").value = "";
@@ -528,6 +529,14 @@
         if (prefix.startsWith(code)) return `${clean} (${name})`;
       }
       return clean;
+    }
+
+    function formatNationalId(val) {
+      let clean = (val || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!clean) return '';
+      let first = clean.charAt(0).replace(/[^A-Z]/g, '');
+      let rest = clean.substring(1).replace(/[^0-9]/g, '').slice(0, 9);
+      return first + rest;
     }
 
     function compressImageForStorage(file) {
@@ -1339,7 +1348,7 @@
     }
 
     // ==========================================
-    // 編輯 Drawer 抽屜模組
+    // 編輯抽屜模組
     // ==========================================
     window.openEditDrawer = (id) => {
       currentEditGuestId = id;
@@ -1381,7 +1390,6 @@
       document.getElementById("drawerVisitCount").innerText = prof.historyVisits.length;
       document.getElementById("drawerTotalPoints").innerText = prof.totalPoints;
 
-      // 護照原圖按鈕
       const photoBtn = document.getElementById("drawerPassportPhotoBtn");
       const uploadBtn = document.getElementById("drawerUploadPassportPhotoBtn");
       if (g.passportImage) {
@@ -1392,7 +1400,6 @@
         uploadBtn.classList.remove("hidden");
       }
 
-      // 歷程清單渲染
       const historyList = document.getElementById("historyListContainer");
       historyList.innerHTML = prof.allVisits.map(v => `
         <div class="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl text-xs space-y-1">
@@ -1404,7 +1411,6 @@
         </div>
       `).join("");
 
-      // 稽核日誌
       const auditBox = document.getElementById("drawerAuditLogContainer");
       if (g.auditLogs && Array.isArray(g.auditLogs)) {
         auditBox.innerHTML = g.auditLogs.map(l => `<div class="text-[10px] text-neutral-400">${new Date(l.time).toLocaleString()}: ${l.msg}</div>`).join("");
@@ -1476,7 +1482,6 @@
       }
     };
 
-    // 刪除操作
     window.deleteGuest = async (id) => {
       if (confirm("確定要刪除此筆預約紀錄嗎？刪除後無法還原。")) {
         await remove(ref(db, `guests/${id}`));
@@ -1498,7 +1503,6 @@
       }
     };
 
-    // 續住與結案
     window.openExtendModal = (id, curDays) => {
       currentExtendingGuestId = id;
       document.getElementById("extendNightsSelect").value = "4";
@@ -1550,9 +1554,7 @@
       navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
     };
 
-    // ==========================================
-    // 護照與車單相片處理 & OCR 模組
-    // ==========================================
+    // 護照與車單
     const adminPassportUploadInput = document.getElementById("adminPassportUploadInput");
     const dispatchUploadInput = document.getElementById("dispatchUploadInput");
 
@@ -1651,9 +1653,7 @@
       document.getElementById("dispatchResultModal").classList.add("hidden");
     };
 
-    // ==========================================
-    // 重複資料合併模組
-    // ==========================================
+    // 資料合併
     window.openMergeModal = (id1, id2, reason) => {
       mergeMasterId = id1;
       mergeSecondaryId = id2;
@@ -1733,7 +1733,7 @@
     };
 
     // ==========================================
-    // 任務派遣模組
+    // 任務派遣模組（完全依照圖一、圖二 UI 與邏輯）
     // ==========================================
     window.openCreateTaskModal = () => {
       if (currentUser?.role !== 'admin') return;
@@ -1765,6 +1765,7 @@
       await push(ref(db, "tasks"), {
         title, assignee, dueDate, desc,
         status: 'pending',
+        feedback: '',
         creator: currentUser.name,
         createdAt: Date.now()
       });
@@ -1773,9 +1774,28 @@
       window.closeCreateTaskModal();
     };
 
-    window.toggleTaskStatus = async (taskId, currentStatus) => {
-      const next = currentStatus === 'completed' ? 'pending' : 'completed';
-      await update(ref(db, `tasks/${taskId}`), { status: next });
+    window.submitTaskFeedback = async (taskId) => {
+      const statusSelect = document.getElementById(`taskStatusSelect_${taskId}`);
+      const feedbackInput = document.getElementById(`taskFeedbackInput_${taskId}`);
+      if (!statusSelect) return;
+
+      const newStatus = statusSelect.value;
+      const newFeedback = feedbackInput ? feedbackInput.value.trim() : '';
+
+      await update(ref(db, `tasks/${taskId}`), {
+        status: newStatus,
+        feedback: newFeedback,
+        updatedAt: Date.now(),
+        updatedBy: currentUser.name
+      });
+
+      alert("進度與說明已成功回傳！");
+    };
+
+    window.deleteTask = async (taskId) => {
+      if (confirm("確定要刪除此派遣任務嗎？")) {
+        await remove(ref(db, `tasks/${taskId}`));
+      }
     };
 
     function renderTasksView() {
@@ -1787,32 +1807,84 @@
       if (taskFilter === 'closed') list = list.filter(t => t.status === 'completed');
 
       if (list.length === 0) {
-        container.innerHTML = `<div class="col-span-full text-center py-8 text-neutral-500 text-xs">目前無任何派遣任務。</div>`;
+        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無任何派遣任務。</div>`;
         return;
       }
 
+      const isAdmin = (currentUser?.role === 'admin');
+
       container.innerHTML = list.map(t => {
-        const isDone = t.status === 'completed';
+        const isCompleted = (t.status === 'completed');
+        const formattedDueDate = t.dueDate ? t.dueDate.replace('T', ' ') : '-';
+        
+        const statusMap = {
+          'pending': '待處理',
+          'processing': '處理中',
+          'completed': '已完成'
+        };
+        const statusText = statusMap[t.status] || '待處理';
+
         return `
-          <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-2.5 shadow-md">
-            <div class="flex items-center justify-between">
-              <span class="text-xs font-bold ${isDone ? 'line-through text-neutral-500' : 'text-white'}">${t.title}</span>
-              <button onclick="toggleTaskStatus('${t.id}', '${t.status}')" class="px-2 py-0.5 rounded text-[10px] font-bold ${isDone ? 'bg-neutral-800 text-neutral-400' : 'bg-red-950 border border-red-800 text-red-400'}">
-                ${isDone ? '已完成' : '標記完成'}
+          <div class="bg-[#121212] border border-neutral-800 rounded-3xl p-5 space-y-4 shadow-xl">
+            
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <h4 class="text-base font-bold text-white tracking-tight leading-snug">${t.title || '無標題'}</h4>
+                <div class="text-xs text-neutral-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                  <span>負責人: <b class="text-red-400">${t.assignee || '未指派'}</b></span>
+                  <span class="text-neutral-600">|</span>
+                  <span>派發: ${t.creator || '總管理者'}</span>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="px-2.5 py-1 rounded-lg text-xs font-medium bg-neutral-800 text-neutral-300">
+                  ${statusText}
+                </span>
+                ${isAdmin ? `
+                  <button onclick="deleteTask('${t.id}')" class="text-neutral-500 hover:text-red-400 text-xs p-1" title="刪除任務">✕</button>
+                ` : ''}
+              </div>
+            </div>
+
+            ${t.desc ? `
+              <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 text-xs text-white leading-relaxed">
+                ${t.desc}
+              </div>
+            ` : ''}
+
+            <div class="text-xs text-neutral-400">
+              <span>截止時間: </span>
+              <span class="text-amber-400 font-mono font-bold ml-1">${formattedDueDate}</span>
+            </div>
+
+            <div class="border-t border-neutral-800/80 pt-3.5 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+                <div>
+                  <label class="block text-neutral-400 text-[11px] mb-1">更新任務狀態</label>
+                  <select id="taskStatusSelect_${t.id}" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
+                    <option value="pending" ${t.status === 'pending' ? 'selected' : ''}>待處理</option>
+                    <option value="processing" ${t.status === 'processing' ? 'selected' : ''}>處理中</option>
+                    <option value="completed" ${t.status === 'completed' ? 'selected' : ''}>已完成</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-neutral-400 text-[11px] mb-1">狀況說明填寫</label>
+                  <input id="taskFeedbackInput_${t.id}" value="${t.feedback || ''}" placeholder="例：前往中、已辦妥" class="w-full px-3 py-2 bg-neutral-900 border border-red-900/60 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+                </div>
+              </div>
+
+              <button onclick="submitTaskFeedback('${t.id}')" class="w-full py-2.5 bg-neutral-800 hover:bg-neutral-700 active:scale-[0.99] text-neutral-200 hover:text-white text-xs font-bold rounded-xl transition">
+                回傳進度
               </button>
             </div>
-            <p class="text-[11px] text-neutral-400">${t.desc || '無詳細說明'}</p>
-            <div class="flex justify-between items-center text-[10px] text-neutral-500 border-t border-neutral-900 pt-2">
-              <span>負責人: <b class="text-neutral-300">${t.assignee}</b></span>
-              <span>截止: ${t.dueDate ? t.dueDate.replace('T', ' ') : '-'}</span>
-            </div>
+
           </div>
         `;
       }).join("");
     }
 
     // ==========================================
-    // 報表分析與 CSV 匯出模組
+    // 報表與營運分析（完整 4 圖表 + 6 KPI 矩陣 + 作戰待辦區）
     // ==========================================
     function initAnalyticsDates() {
       const now = new Date();
@@ -1834,6 +1906,16 @@
       const now = new Date();
       const pad = (n) => String(n).padStart(2, '0');
       analyticsEndDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      ['today', '7d', '30d', 'month', '6m', 'all'].forEach(k => {
+        const btn = document.getElementById(`btnRange${k.charAt(0).toUpperCase() + k.slice(1)}`);
+        if (!btn) return;
+        if (k === type) {
+          btn.className = "px-3 py-1.5 rounded-xl bg-neutral-700 text-white font-bold text-xs transition shadow-sm border border-neutral-600";
+        } else {
+          btn.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition";
+        }
+      });
 
       if (type === 'today') {
         analyticsStartDate = analyticsEndDate;
@@ -1867,7 +1949,9 @@
     };
 
     function renderAnalyticsDashboard() {
-      const guestList = Object.values(allGuests).filter(g => g.status !== 'merged');
+      const guestList = Object.entries(allGuests).map(([id, d]) => ({ id, ...d })).filter(g => g.status !== 'merged');
+      const profileMap = buildClientProfileMap(guestList, Date.now());
+
       const filtered = guestList.filter(g => {
         const dateStr = g.arrival ? g.arrival.split('T')[0] : '';
         if (!dateStr) return true;
@@ -1875,39 +1959,214 @@
       });
 
       let totalStay = 0;
-      let pendingDispatch = 0;
-      let incomplete = 0;
-      let abnormal = 0;
-      const staffMap = {};
+      let vipCount = 0;
+      let pendingDispatchList = [];
+      let incompleteList = [];
+      let abnormalCount = 0;
+      const staffPointsMap = {};
+      const staffTasksMap = {};
+      const trendMap = {};
+      let tierLong = 0;
+      let tierShort = 0;
+      let tierOther = 0;
+      const utmMap = {};
 
       filtered.forEach(g => {
-        totalStay += (parseInt(g.stayDays, 10) || 5);
-        if (!g.dispatchVerified) pendingDispatch++;
-        if (!g.passport || !g.nationalId) incomplete++;
-        if (g.status === 'cancelled') abnormal++;
+        const sDays = parseInt(g.stayDays, 10) || 5;
+        totalStay += sDays;
 
-        const s = g.staff || '未指派';
-        staffMap[s] = (staffMap[s] || 0) + (parseInt(g.points, 10) || 0);
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+        const p = profileMap[pKey] || { clientType: 'other' };
+
+        if (p.clientType === 'long') tierLong++;
+        else if (p.clientType === 'short') tierShort++;
+        else tierOther++;
+
+        if (p.clientType === 'long') vipCount++;
+
+        if (!g.dispatchVerified && g.status !== 'cancelled') {
+          pendingDispatchList.push(g);
+        }
+
+        const missing = [];
+        if (!g.passport) missing.push('護照號');
+        if (!g.nationalId) missing.push('身分證');
+        if (!g.airline) missing.push('航班');
+        if (missing.length > 0) {
+          incompleteList.push({ ...g, missingText: missing.join('、') });
+        }
+
+        if (g.status === 'cancelled') abnormalCount++;
+
+        const st = g.staff || '未指派';
+        staffPointsMap[st] = (staffPointsMap[st] || 0) + (parseInt(g.points, 10) || 0);
+        staffTasksMap[st] = (staffTasksMap[st] || 0) + 1;
+
+        const arrD = g.arrival ? g.arrival.split('T')[0] : '未排期';
+        trendMap[arrD] = (trendMap[arrD] || 0) + 1;
+
+        const utm = g.utmSource || g.referrer || 'direct';
+        utmMap[utm] = (utmMap[utm] || 0) + 1;
       });
 
+      // 6 大 KPI 渲染
       document.getElementById("kpiTotalGuests").innerText = filtered.length;
       document.getElementById("kpiAvgStay").innerText = filtered.length ? (totalStay / filtered.length).toFixed(1) : 0;
-      document.getElementById("kpiPendingDispatch").innerText = pendingDispatch;
-      document.getElementById("kpiIncompleteData").innerText = incomplete;
-      document.getElementById("kpiAbnormalCount").innerText = abnormal;
+      document.getElementById("kpiVipCount").innerText = vipCount;
+      document.getElementById("kpiPendingDispatch").innerText = pendingDispatchList.length;
+      document.getElementById("kpiIncompleteData").innerText = incompleteList.length;
+      document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
 
-      // 專員榜
+      // 專員榜渲染
       const staffBox = document.getElementById("staffLeaderboardContainer");
       if (staffBox) {
-        staffBox.innerHTML = Object.entries(staffMap).map(([name, pts]) => `
-          <div class="flex justify-between items-center text-xs bg-neutral-950 p-2.5 rounded-xl border border-neutral-800">
-            <span class="text-white font-medium">${name}</span>
-            <span class="text-amber-400 font-mono font-bold">${pts} 點</span>
-          </div>
-        `).join("");
+        const staffEntries = Object.entries(staffPointsMap).sort((a, b) => b[1] - a[1]);
+        if (staffEntries.length === 0) {
+          staffBox.innerHTML = `<div class="text-xs text-neutral-500 py-4 text-center">此區間尚無專員業績紀錄</div>`;
+        } else {
+          staffBox.innerHTML = staffEntries.map(([name, pts], idx) => `
+            <div class="flex items-center justify-between text-xs bg-neutral-950 p-2.5 rounded-xl border border-neutral-800">
+              <div class="flex items-center gap-2">
+                <span class="w-5 h-5 rounded-full bg-neutral-800 flex items-center justify-center font-bold text-[10px] text-red-400 font-mono">${idx + 1}</span>
+                <span class="text-white font-medium">${name}</span>
+                <span class="text-[10px] text-neutral-500">(${staffTasksMap[name] || 0} 單)</span>
+              </div>
+              <span class="text-amber-400 font-mono font-bold">${pts} 點</span>
+            </div>
+          `).join("");
+        }
+      }
+
+      // 作戰待辦表格 1: 等待上傳車單
+      const pendingDispatchBody = document.getElementById("actionPendingDispatchBody");
+      if (pendingDispatchBody) {
+        if (pendingDispatchList.length === 0) {
+          pendingDispatchBody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-neutral-500 text-xs">全部車單皆已核對完成！</td></tr>`;
+        } else {
+          pendingDispatchBody.innerHTML = pendingDispatchList.slice(0, 10).map(g => `
+            <tr class="text-xs border-b border-neutral-800/60 hover:bg-neutral-800/40">
+              <td class="py-2.5 px-3 font-bold text-white">${g.name || '-'}</td>
+              <td class="py-2.5 px-3 text-neutral-400 font-mono">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</td>
+              <td class="py-2.5 px-3 text-neutral-300 font-mono">${g.airline || '-'}</td>
+              <td class="py-2.5 px-3 text-neutral-400">${g.staff || '未指派'}</td>
+              <td class="py-2.5 px-3 text-right">
+                <button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-[11px] font-bold transition">核對車單</button>
+              </td>
+            </tr>
+          `).join("");
+        }
+      }
+
+      // 作戰待辦表格 2: 未補齊資料名單
+      const incompleteBody = document.getElementById("actionIncompleteBody");
+      if (incompleteBody) {
+        if (incompleteList.length === 0) {
+          incompleteBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-neutral-500 text-xs">客戶資料完整齊全！</td></tr>`;
+        } else {
+          incompleteBody.innerHTML = incompleteList.slice(0, 10).map(g => `
+            <tr class="text-xs border-b border-neutral-800/60 hover:bg-neutral-800/40">
+              <td class="py-2.5 px-3 font-bold text-white">${g.name || '-'} <span class="text-[10px] text-neutral-500 font-normal">(${g.lineNickname || '無LINE'})</span></td>
+              <td class="py-2.5 px-3 text-neutral-400 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
+              <td class="py-2.5 px-3 text-red-400 font-medium">${g.missingText}</td>
+              <td class="py-2.5 px-3 text-right">
+                <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-[11px] font-medium transition">補件編輯</button>
+              </td>
+            </tr>
+          `).join("");
+        }
+      }
+
+      // Chart 1: 走勢圖
+      const trendCtx = document.getElementById("chartTrend")?.getContext("2d");
+      if (trendCtx) {
+        const sortedDates = Object.keys(trendMap).sort();
+        const trendValues = sortedDates.map(d => trendMap[d]);
+        if (chartTrendInstance) chartTrendInstance.destroy();
+        chartTrendInstance = new Chart(trendCtx, {
+          type: 'line',
+          data: {
+            labels: sortedDates.length ? sortedDates : ['無數據'],
+            datasets: [{
+              label: '旅客數',
+              data: trendValues.length ? trendValues : [0],
+              borderColor: '#ef4444',
+              backgroundColor: 'rgba(239, 68, 68, 0.15)',
+              fill: true,
+              tension: 0.35,
+              pointBackgroundColor: '#ef4444'
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' } },
+              y: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' }, beginAtZero: true }
+            }
+          }
+        });
+      }
+
+      // Chart 2: 分級圓餅圖
+      const tierCtx = document.getElementById("chartTier")?.getContext("2d");
+      if (tierCtx) {
+        if (chartTierInstance) chartTierInstance.destroy();
+        chartTierInstance = new Chart(tierCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['長期客戶', '短期客戶', '新客/單次'],
+            datasets: [{
+              data: [tierLong, tierShort, tierOther],
+              backgroundColor: ['#dc2626', '#d97706', '#525252'],
+              borderColor: '#171717',
+              borderWidth: 2
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'bottom', labels: { color: '#a3a3a3', font: { size: 11 } } }
+            }
+          }
+        });
+      }
+
+      // Chart 3: UTM 來源圖
+      const utmCtx = document.getElementById("chartUtm")?.getContext("2d");
+      if (utmCtx) {
+        const utmLabels = Object.keys(utmMap);
+        const utmValues = utmLabels.map(l => utmMap[l]);
+        if (chartUtmInstance) chartUtmInstance.destroy();
+        chartUtmInstance = new Chart(utmCtx, {
+          type: 'bar',
+          data: {
+            labels: utmLabels.length ? utmLabels : ['無'],
+            datasets: [{
+              label: '進單數',
+              data: utmValues.length ? utmValues : [0],
+              backgroundColor: '#3b82f6',
+              borderRadius: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { ticks: { color: '#737373', font: { size: 10 } }, grid: { display: false } },
+              y: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' }, beginAtZero: true }
+            }
+          }
+        });
       }
     }
 
+    // CSV 匯出
     window.exportToCSV = () => {
       const list = Object.values(allGuests).filter(g => g.status !== 'merged');
       if (list.length === 0) {
@@ -2229,7 +2488,7 @@
       </div>
     </div>
 
-    <!-- 分頁 5: 報表與營運分析 -->
+    <!-- 分頁 5: 報表與營運分析（100% 還原原版完整結構） -->
     <div id="analyticsView" class="hidden space-y-5">
       
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
@@ -2257,8 +2516,8 @@
         </div>
       </div>
 
-      <!-- KPI 矩陣 -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
+      <!-- 6 大核心 KPI 矩陣 -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">區間總旅客數</div>
           <div id="kpiTotalGuests" class="text-xl sm:text-2xl font-black text-white font-mono">0</div>
@@ -2266,6 +2525,10 @@
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">平均停留天數</div>
           <div class="text-xl sm:text-2xl font-black text-white font-mono"><span id="kpiAvgStay">0</span> <span class="text-xs text-neutral-500 font-normal">晚</span></div>
+        </div>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-400 font-medium">VIP 長期客戶數</div>
+          <div id="kpiVipCount" class="text-xl sm:text-2xl font-black text-neutral-200 font-mono">0</div>
         </div>
         <div class="bg-neutral-900 border border-blue-950/60 bg-blue-950/20 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-blue-400 font-medium">等待上傳派車單</div>
@@ -2281,13 +2544,89 @@
         </div>
       </div>
 
-      <!-- 專員排行 -->
-      <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-        <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-          <h4 class="text-xs font-bold text-neutral-200">接待專員發放積分排行榜</h4>
-          <span class="text-[10px] text-neutral-500">業績即時榜</span>
+      <!-- 4 大核心圖表 -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-neutral-200">旅客到訪走勢趨勢圖</h4>
+            <span class="text-[10px] text-neutral-500">按日/按月統計</span>
+          </div>
+          <div class="h-60">
+            <canvas id="chartTrend"></canvas>
+          </div>
         </div>
-        <div id="staffLeaderboardContainer" class="space-y-2 max-h-60 overflow-y-auto"></div>
+
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-neutral-200">客群結構分級佔比</h4>
+            <span class="text-[10px] text-neutral-500">忠誠度結構</span>
+          </div>
+          <div class="h-60">
+            <canvas id="chartTier"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-neutral-200">導流渠道 UTM 轉換來源 (無UTM計為 direct)</h4>
+            <span class="text-[10px] text-neutral-500">進單來源排名</span>
+          </div>
+          <div class="h-60">
+            <canvas id="chartUtm"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-neutral-200">接待專員處理量與積分排行榜</h4>
+            <span class="text-[10px] text-neutral-500">業績即時榜</span>
+          </div>
+          <div id="staffLeaderboardContainer" class="space-y-3 h-60 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+
+      <!-- 管理員作戰待辦工作區 -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+            <h4 class="text-xs font-bold text-white">等待上傳派車單名單 (管理員專區)</h4>
+            <span class="text-[10px] text-blue-400">點擊直接上傳車單核對</span>
+          </div>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名</th>
+                  <th class="py-2 px-3">抵達時間</th>
+                  <th class="py-2 px-3">航班</th>
+                  <th class="py-2 px-3">專員</th>
+                  <th class="py-2 px-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="actionPendingDispatchBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+            <h4 class="text-xs font-bold text-white">資料未補齊客戶清單</h4>
+            <span class="text-[10px] text-neutral-400">需專員聯繫催件</span>
+          </div>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名 (LINE)</th>
+                  <th class="py-2 px-3">抵達日</th>
+                  <th class="py-2 px-3">缺漏項目</th>
+                  <th class="py-2 px-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="actionIncompleteBody"></tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -2315,38 +2654,38 @@
 
   </main>
 
-  <!-- 建立派遣任務彈窗 -->
+  <!-- 建立派遣任務彈窗（完全符合圖一） -->
   <div id="taskModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-    <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
-      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <h3 class="text-sm font-bold text-white">建立臨時派遣任務</h3>
+    <div class="bg-[#121212] border border-neutral-800 rounded-3xl p-6 sm:p-7 max-w-md w-full space-y-5 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3">
+        <h3 class="text-base font-bold text-white tracking-tight">建立臨時派遣任務</h3>
         <button onclick="closeCreateTaskModal()" class="text-neutral-400 hover:text-white font-bold p-1">✕</button>
       </div>
 
-      <div class="space-y-3 text-xs">
+      <div class="space-y-4 text-xs">
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">任務標題 *</label>
-          <input id="taskTitleInput" placeholder="例：前往樂天飯店確認貴賓延住" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <label class="block text-neutral-300 font-semibold mb-1.5">任務標題 *</label>
+          <input id="taskTitleInput" placeholder="前往君悅酒店確認林小美客人是否續訂" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">任務負責人全名 *</label>
-          <input id="taskAssigneeInput" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <label class="block text-neutral-300 font-semibold mb-1.5">任務負責人全名 * <span class="text-[10px] text-neutral-500">(須與系統員工名冊全名一致)</span></label>
+          <input id="taskAssigneeInput" placeholder="李庭瑜" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">任務截止時間 *</label>
-          <input id="taskDueDateInput" type="datetime-local" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
+          <input id="taskDueDateInput" type="datetime-local" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">詳細說明 / 注意事項</label>
-          <textarea id="taskDescInput" rows="3" placeholder="請填寫具體任務細節、聯絡電話或房號..." class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
+          <label class="block text-neutral-300 font-semibold mb-1.5">詳細說明 / 注意事項</label>
+          <textarea id="taskDescInput" rows="3" placeholder="請和他合照一張" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
         </div>
       </div>
 
-      <p id="taskModalError" class="hidden text-xs text-red-400 bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+      <p id="taskModalError" class="hidden text-xs text-red-400 bg-red-950/40 p-2.5 rounded-xl border border-red-900/60"></p>
 
-      <div class="flex gap-2 pt-2 border-t border-neutral-800">
-        <button onclick="closeCreateTaskModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
-        <button onclick="submitCreateTask()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認指派任務</button>
+      <div class="flex gap-3 pt-2">
+        <button onclick="closeCreateTaskModal()" class="flex-1 py-3 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-2xl text-xs font-semibold transition">取消</button>
+        <button onclick="submitCreateTask()" class="flex-1 py-3 bg-red-600 hover:bg-red-700 active:scale-[0.99] text-white font-bold rounded-2xl text-xs shadow-lg shadow-red-950 transition">確認指派任務</button>
       </div>
     </div>
   </div>
@@ -2449,7 +2788,7 @@
     </div>
   </div>
 
-  <!-- 密碼彈窗 -->
+  <!-- 密碼變更彈窗 -->
   <div id="changePasswordModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
