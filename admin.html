@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>濟州島行程與房務管理後台</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   
   <script type="module">
@@ -34,6 +35,16 @@
     let rosterFilter = 'all'; 
     let housekeepingFilter = 'all'; 
     let unmaskedIds = new Set();
+
+    // 報表時間範圍 (預設近 30 天)
+    let analyticsRangeType = '30d'; // 'today' | '7d' | '30d' | 'month' | '6m' | 'all' | 'custom'
+    let analyticsStartDate = '';
+    let analyticsEndDate = '';
+
+    // Chart.js 實例儲存
+    let chartTrendInstance = null;
+    let chartTierInstance = null;
+    let chartUtmInstance = null;
 
     let ocrWorker = null;
     async function getOcrWorker() {
@@ -146,10 +157,13 @@
       
       if (currentUser.role === 'admin') {
         document.getElementById("navUsersBtn").classList.remove("hidden");
+        document.getElementById("navAnalyticsBtn").classList.remove("hidden");
       } else {
         document.getElementById("navUsersBtn").classList.add("hidden");
+        document.getElementById("navAnalyticsBtn").classList.add("hidden");
       }
 
+      initAnalyticsDates();
       loadDatabaseListener();
       loadUsersListener();
     }
@@ -229,6 +243,9 @@
       onValue(guestsRef, (snapshot) => {
         allGuests = snapshot.val() || {};
         renderDashboard();
+        if (activeTab === 'analytics') {
+          renderAnalyticsDashboard();
+        }
       });
     }
 
@@ -848,9 +865,12 @@
           ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
           : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
 
+        // 派車單按鈕 (若已核驗且有圖，可直接點擊預覽大圖；若無則顯示核對上傳按鈕)
         const dispatchVerifyBadge = g.dispatchVerified
-          ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 text-[10px] font-bold">✓ 派車單已核驗</span>`
-          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單核對</button>`;
+          ? `<div class="flex items-center gap-1">
+               <button onclick="viewDispatchPhoto('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單</button>
+             </div>`
+          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-neutral-850 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">核對車單</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
@@ -1184,6 +1204,474 @@
       }).join("");
     }
 
+    // ==========================================
+    // 8. 派車單原圖預覽與 OCR 上傳存檔
+    // ==========================================
+    window.viewDispatchPhoto = (id) => {
+      const g = allGuests[id];
+      if (!g || !g.dispatchImage) {
+        alert("此旅客尚無儲存的派車單原圖。");
+        return;
+      }
+      document.getElementById("dispatchModalImg").src = g.dispatchImage;
+      document.getElementById("dispatchModalTitle").innerText = `${g.name || '貴賓'} 的派車單原圖 (${g.englishName || '-'})`;
+      document.getElementById("dispatchPhotoModal").classList.remove("hidden");
+    };
+
+    window.closeDispatchPhotoModal = () => {
+      document.getElementById("dispatchPhotoModal").classList.add("hidden");
+      document.getElementById("dispatchModalImg").src = "";
+    };
+
+    let dispatchTargetGuestId = null;
+    const dispatchUploadInput = document.getElementById("dispatchUploadInput");
+    const dispatchModal = document.getElementById("dispatchResultModal");
+    const dispatchLoadingOverlay = document.getElementById("dispatchLoadingOverlay");
+
+    window.triggerDispatchVerify = (id) => {
+      dispatchTargetGuestId = id;
+      dispatchUploadInput.value = "";
+      dispatchUploadInput.click();
+    };
+
+    dispatchUploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file || !dispatchTargetGuestId) return;
+
+      const guest = allGuests[dispatchTargetGuestId];
+      if (!guest) return;
+
+      dispatchLoadingOverlay.classList.remove("hidden");
+
+      try {
+        const compressedBase64 = await compressImageForStorage(file);
+        const croppedImg = await preprocessDispatchImage(file);
+        const worker = await getOcrWorker();
+        const { data: { text } } = await worker.recognize(croppedImg);
+
+        let rawOcrText = text.replace(/\n/g, ' ').toUpperCase();
+        let extractedName = "";
+
+        const matchSlash = rawOcrText.match(/[0-9]{5,12}\s+([A-Z\s]+)\//);
+        if (matchSlash && matchSlash[1]) {
+          extractedName = matchSlash[1].trim();
+        } else {
+          const matchBooking = rawOcrText.match(/FOR\s+([0-9]*\s*)([A-Z\s]+)/);
+          if (matchBooking && matchBooking[2]) {
+            extractedName = matchBooking[2].split('/')[0].trim();
+          } else {
+            extractedName = rawOcrText.replace(/BOOKING|FOR|[0-9/]/g, '').trim();
+          }
+        }
+
+        const cleanExtracted = normalizeStr(extractedName);
+        const cleanRegistered = normalizeStr(guest.englishName);
+
+        const isExactMatch = (cleanExtracted.length > 0 && cleanRegistered.length > 0) && (cleanExtracted === cleanRegistered || cleanExtracted.includes(cleanRegistered) || cleanRegistered.includes(cleanExtracted));
+
+        document.getElementById("dispatchOcrRaw").innerText = extractedName || '(未辨識出英文姓名)';
+        document.getElementById("dispatchRegisteredName").innerText = guest.englishName || '(系統未填寫英文名)';
+
+        if (isExactMatch) {
+          document.getElementById("dispatchResultTitle").innerText = "確認正確 (派車單原圖已自動留存)";
+          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
+          document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與登記完全吻合，原圖已同步留存於後台供接機查閱！";
+          
+          // 自動儲存派車單原圖並標記已核驗
+          await update(ref(db, `guests/${dispatchTargetGuestId}`), {
+            dispatchVerified: true,
+            dispatchImage: compressedBase64
+          });
+        } else {
+          document.getElementById("dispatchResultTitle").innerText = "異常，請人員再次檢查";
+          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-red-500 animate-pulse";
+          document.getElementById("dispatchResultMsg").innerText = "截圖辨識之英文姓名與登記姓名不符，請核對下方資訊或手動修改。";
+        }
+
+        dispatchModal.classList.remove("hidden");
+      } catch (err) {
+        alert("派車單辨識失敗: " + err.message);
+      } finally {
+        dispatchLoadingOverlay.classList.add("hidden");
+      }
+    });
+
+    window.closeDispatchModal = () => {
+      dispatchModal.classList.add("hidden");
+      dispatchTargetGuestId = null;
+    };
+
+    // ==========================================
+    // 9. 報表與營運分析 (Google Analytics 級動態計算與圖表)
+    // ==========================================
+    function initAnalyticsDates() {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      const d30 = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+      const start30Str = `${d30.getFullYear()}-${pad(d30.getMonth() + 1)}-${pad(d30.getDate())}`;
+
+      analyticsStartDate = start30Str;
+      analyticsEndDate = todayStr;
+
+      document.getElementById("analyticsStartInput").value = analyticsStartDate;
+      document.getElementById("analyticsEndInput").value = analyticsEndDate;
+    }
+
+    window.setAnalyticsRange = (type) => {
+      analyticsRangeType = type;
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      if (type === 'today') {
+        analyticsStartDate = todayStr;
+        analyticsEndDate = todayStr;
+      } else if (type === '7d') {
+        const d = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        analyticsStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        analyticsEndDate = todayStr;
+      } else if (type === '30d') {
+        const d = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000));
+        analyticsStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        analyticsEndDate = todayStr;
+      } else if (type === 'month') {
+        analyticsStartDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+        analyticsEndDate = todayStr;
+      } else if (type === '6m') {
+        const d = new Date();
+        d.setMonth(d.getMonth() - 6);
+        analyticsStartDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+        analyticsEndDate = todayStr;
+      } else if (type === 'all') {
+        analyticsStartDate = '2020-01-01';
+        analyticsEndDate = '2030-12-31';
+      }
+
+      document.getElementById("analyticsStartInput").value = analyticsStartDate;
+      document.getElementById("analyticsEndInput").value = analyticsEndDate;
+      updateRangeButtonStyles();
+      renderAnalyticsDashboard();
+    };
+
+    window.onCustomDateChange = () => {
+      analyticsRangeType = 'custom';
+      analyticsStartDate = document.getElementById("analyticsStartInput").value;
+      analyticsEndDate = document.getElementById("analyticsEndInput").value;
+      updateRangeButtonStyles();
+      renderAnalyticsDashboard();
+    };
+
+    function updateRangeButtonStyles() {
+      const btns = {
+        'today': document.getElementById("btnRangeToday"),
+        '7d': document.getElementById("btnRange7d"),
+        '30d': document.getElementById("btnRange30d"),
+        'month': document.getElementById("btnRangeMonth"),
+        '6m': document.getElementById("btnRange6m"),
+        'all': document.getElementById("btnRangeAll")
+      };
+
+      Object.entries(btns).forEach(([key, el]) => {
+        if (!el) return;
+        if (analyticsRangeType === key) {
+          el.className = "px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs transition shadow-sm";
+        } else {
+          el.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition";
+        }
+      });
+    }
+
+    function renderAnalyticsDashboard() {
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
+      const nowTs = Date.now();
+      const profileMap = buildClientProfileMap(guestList, nowTs);
+
+      // 依時間區間篩選名單
+      const startTs = analyticsStartDate ? new Date(analyticsStartDate + "T00:00:00").getTime() : 0;
+      const endTs = analyticsEndDate ? new Date(analyticsEndDate + "T23:59:59").getTime() : Infinity;
+
+      const rangeGuests = guestList.filter(g => {
+        const ts = g.createdAt || (g.arrival ? new Date(g.arrival).getTime() : 0);
+        return ts >= startTs && ts <= endTs;
+      });
+
+      // 1. KPI 聚合計算
+      const totalCount = rangeGuests.length;
+      let totalStayDays = 0;
+      let vipCount = 0;
+      let shortCount = 0;
+      let newCount = 0;
+      let pendingDispatchList = [];
+      let incompleteDataList = [];
+      let abnormalCount = 0;
+
+      const staffMap = {};
+      const utmMap = {};
+      const trendDateMap = {};
+
+      rangeGuests.forEach(g => {
+        const stay = parseInt(g.stayDays, 10) || 1;
+        totalStayDays += stay;
+
+        const passKey = (g.passport || '').trim().toUpperCase();
+        const idKey = (g.nationalId || '').trim().toUpperCase();
+        const nameKey = (g.name || '').trim();
+        const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+        const p = profileMap[pKey] || { clientType: 'other' };
+
+        if (p.clientType === 'long') vipCount++;
+        else if (p.clientType === 'short') shortCount++;
+        else newCount++;
+
+        // 待傳派車單
+        if (!g.dispatchVerified && g.status !== 'cancelled' && g.status !== 'completed') {
+          pendingDispatchList.push(g);
+        }
+
+        // 資料未補齊
+        const isMissing = !g.passportImage || !g.passport || !g.nationalId || !g.birthday || !g.returnAirline;
+        if (isMissing) {
+          incompleteDataList.push(g);
+        }
+
+        // 異常單
+        if (g.status === 'cancelled') abnormalCount++;
+
+        // 專員排行
+        const staffName = g.staff ? g.staff.trim() : '未指派專員';
+        if (!staffMap[staffName]) staffMap[staffName] = { count: 0, points: 0 };
+        staffMap[staffName].count += 1;
+        staffMap[staffName].points += (parseInt(g.points, 10) || 0);
+
+        // 渠道 UTM 統計
+        const rawUtm = g.utmSource || g.referrer || '直接登記 (Direct)';
+        const cleanUtm = rawUtm.trim() || '直接登記 (Direct)';
+        utmMap[cleanUtm] = (utmMap[cleanUtm] || 0) + 1;
+
+        // 趨勢統計 (按日期)
+        const dateKey = g.arrival ? g.arrival.split('T')[0] : (g.createdAt ? new Date(g.createdAt).toISOString().split('T')[0] : '其他');
+        trendDateMap[dateKey] = (trendDateMap[dateKey] || 0) + 1;
+      });
+
+      const avgStay = totalCount > 0 ? (totalStayDays / totalCount).toFixed(1) : '0';
+
+      // 填入 KPI 卡片
+      document.getElementById("kpiTotalGuests").innerText = totalCount;
+      document.getElementById("kpiAvgStay").innerText = avgStay;
+      document.getElementById("kpiVipCount").innerText = vipCount;
+      document.getElementById("kpiPendingDispatch").innerText = pendingDispatchList.length;
+      document.getElementById("kpiIncompleteData").innerText = incompleteDataList.length;
+      document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
+
+      // 渲染圖表
+      renderTrendChart(trendDateMap);
+      renderTierChart(vipCount, shortCount, newCount);
+      renderUtmChart(utmMap);
+      renderStaffLeaderboard(staffMap);
+
+      // 渲染作戰工作區 (待傳派車單清單)
+      renderActionPendingDispatch(pendingDispatchList);
+      renderActionIncompleteData(incompleteDataList);
+    }
+
+    function renderTrendChart(dateMap) {
+      const ctx = document.getElementById("chartTrend").getContext("2d");
+      const sortedDates = Object.keys(dateMap).sort();
+      const counts = sortedDates.map(d => dateMap[d]);
+
+      if (chartTrendInstance) chartTrendInstance.destroy();
+
+      chartTrendInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: sortedDates.length > 0 ? sortedDates : ['無資料'],
+          datasets: [{
+            label: '抵達旅客數',
+            data: counts.length > 0 ? counts : [0],
+            backgroundColor: 'rgba(239, 68, 68, 0.85)',
+            borderColor: '#ef4444',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#888', font: { size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#888', precision: 0, font: { size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderTierChart(vip, short, newC) {
+      const ctx = document.getElementById("chartTier").getContext("2d");
+      if (chartTierInstance) chartTierInstance.destroy();
+
+      chartTierInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['長期 VIP 客戶', '短期客戶', '新客 / 單次'],
+          datasets: [{
+            data: [vip, short, newC],
+            backgroundColor: ['#ef4444', '#f59e0b', '#3b82f6'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: '#ccc', font: { size: 11 }, boxWidth: 12 }
+            }
+          },
+          cutout: '70%'
+        }
+      });
+    }
+
+    function renderUtmChart(utmMap) {
+      const ctx = document.getElementById("chartUtm").getContext("2d");
+      const labels = Object.keys(utmMap);
+      const data = labels.map(k => utmMap[k]);
+
+      if (chartUtmInstance) chartUtmInstance.destroy();
+
+      chartUtmInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels.length > 0 ? labels : ['無資料'],
+          datasets: [{
+            axis: 'y',
+            data: data.length > 0 ? data : [0],
+            backgroundColor: 'rgba(245, 158, 11, 0.85)',
+            borderRadius: 6
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#888', precision: 0, font: { size: 10 } }
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#ccc', font: { size: 11 } }
+            }
+          }
+        }
+      });
+    }
+
+    function renderStaffLeaderboard(staffMap) {
+      const container = document.getElementById("staffLeaderboardContainer");
+      const sorted = Object.entries(staffMap).sort((a, b) => b[1].count - a[1].count);
+
+      if (sorted.length === 0) {
+        container.innerHTML = `<div class="text-neutral-500 text-xs text-center py-6">此區間無專員作業紀錄。</div>`;
+        return;
+      }
+
+      const maxCount = sorted[0][1].count || 1;
+
+      container.innerHTML = sorted.map(([name, data], idx) => {
+        const percent = Math.round((data.count / maxCount) * 100);
+        return `
+          <div class="space-y-1.5 text-xs">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="font-mono text-neutral-500 font-bold w-4">#${idx + 1}</span>
+                <span class="font-bold text-white">${name}</span>
+              </div>
+              <div class="font-mono text-neutral-300">
+                <b class="text-amber-400 font-black text-sm">${data.count}</b> 單 
+                <span class="text-[10px] text-neutral-500 ml-1">(${data.points} 積分)</span>
+              </div>
+            </div>
+            <div class="w-full bg-neutral-950 rounded-full h-2 overflow-hidden border border-neutral-800">
+              <div class="bg-red-600 h-full rounded-full transition-all duration-500" style="width: ${percent}%"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderActionPendingDispatch(list) {
+      const container = document.getElementById("actionPendingDispatchBody");
+      if (list.length === 0) {
+        container.innerHTML = `<tr><td colspan="5" class="text-center py-6 text-neutral-500 text-xs">太棒了！所選區間內所有旅客派車單皆已上傳核驗完成。</td></tr>`;
+        return;
+      }
+
+      container.innerHTML = list.map(g => `
+        <tr class="border-b border-neutral-800 hover:bg-neutral-900/60 text-xs">
+          <td class="py-3 px-3.5 font-bold text-white">${g.name || '未填'} <span class="text-neutral-400 font-normal">(${g.englishName || '-'})</span></td>
+          <td class="py-3 px-3.5 font-mono text-neutral-300">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</td>
+          <td class="py-3 px-3.5 font-mono text-red-400 font-bold">${formatFlightWithAirline(g.airline)}</td>
+          <td class="py-3 px-3.5 text-neutral-300">${g.staff || '未指派'}</td>
+          <td class="py-3 px-3.5 text-right">
+            <button onclick="triggerDispatchVerify('${g.id}')" class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg text-xs transition shadow-md shadow-red-950">
+              上傳派車單核對
+            </button>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    function renderActionIncompleteData(list) {
+      const container = document.getElementById("actionIncompleteBody");
+      if (list.length === 0) {
+        container.innerHTML = `<tr><td colspan="4" class="text-center py-6 text-neutral-500 text-xs">所有旅客基本資料皆完整齊全。</td></tr>`;
+        return;
+      }
+
+      container.innerHTML = list.map(g => {
+        const missingItems = [];
+        if (!g.passportImage) missingItems.push("護照照片");
+        if (!g.passport) missingItems.push("護照號碼");
+        if (!g.nationalId) missingItems.push("身分證");
+        if (!g.birthday) missingItems.push("生日");
+        if (!g.returnAirline) missingItems.push("回程航班");
+
+        return `
+          <tr class="border-b border-neutral-800 hover:bg-neutral-900/60 text-xs">
+            <td class="py-3 px-3.5 font-bold text-white">${g.name || '未填'} <span class="text-neutral-400 font-mono">(${g.lineNickname || '無LINE'})</span></td>
+            <td class="py-3 px-3.5 font-mono text-neutral-300">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
+            <td class="py-3 px-3.5">
+              <span class="text-amber-400 font-medium">${missingItems.join("、")}</span>
+            </td>
+            <td class="py-3 px-3.5 text-right">
+              <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-semibold transition">
+                補填資料
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    // ==========================================
+    // 10. 智慧客戶資料合併工作台
+    // ==========================================
     let mergeTargetMasterId = null;
     let mergeTargetSecondaryId = null;
     let mergeCombinedPassportImg = null;
@@ -1308,6 +1796,7 @@
       }
     };
 
+    // 匯出 CSV
     window.exportToCSV = () => {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
       const now = new Date();
@@ -1434,78 +1923,6 @@
         alert("補傳失敗: " + err.message);
       }
     });
-
-    let dispatchTargetGuestId = null;
-    const dispatchUploadInput = document.getElementById("dispatchUploadInput");
-    const dispatchModal = document.getElementById("dispatchResultModal");
-    const dispatchLoadingOverlay = document.getElementById("dispatchLoadingOverlay");
-
-    window.triggerDispatchVerify = (id) => {
-      dispatchTargetGuestId = id;
-      dispatchUploadInput.value = "";
-      dispatchUploadInput.click();
-    };
-
-    dispatchUploadInput.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file || !dispatchTargetGuestId) return;
-
-      const guest = allGuests[dispatchTargetGuestId];
-      if (!guest) return;
-
-      dispatchLoadingOverlay.classList.remove("hidden");
-
-      try {
-        const croppedImg = await preprocessDispatchImage(file);
-        const worker = await getOcrWorker();
-        const { data: { text } } = await worker.recognize(croppedImg);
-
-        let rawOcrText = text.replace(/\n/g, ' ').toUpperCase();
-        let extractedName = "";
-
-        const matchSlash = rawOcrText.match(/[0-9]{5,12}\s+([A-Z\s]+)\//);
-        if (matchSlash && matchSlash[1]) {
-          extractedName = matchSlash[1].trim();
-        } else {
-          const matchBooking = rawOcrText.match(/FOR\s+([0-9]*\s*)([A-Z\s]+)/);
-          if (matchBooking && matchBooking[2]) {
-            extractedName = matchBooking[2].split('/')[0].trim();
-          } else {
-            extractedName = rawOcrText.replace(/BOOKING|FOR|[0-9/]/g, '').trim();
-          }
-        }
-
-        const cleanExtracted = normalizeStr(extractedName);
-        const cleanRegistered = normalizeStr(guest.englishName);
-
-        const isExactMatch = (cleanExtracted.length > 0 && cleanRegistered.length > 0) && (cleanExtracted === cleanRegistered || cleanExtracted.includes(cleanRegistered) || cleanRegistered.includes(cleanExtracted));
-
-        document.getElementById("dispatchOcrRaw").innerText = extractedName || '(未辨識出英文姓名)';
-        document.getElementById("dispatchRegisteredName").innerText = guest.englishName || '(系統未填寫英文名)';
-
-        if (isExactMatch) {
-          document.getElementById("dispatchResultTitle").innerText = "確認正確";
-          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
-          document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與系統登記之旅客英文姓名完全一致！";
-          update(ref(db, `guests/${dispatchTargetGuestId}`), { dispatchVerified: true });
-        } else {
-          document.getElementById("dispatchResultTitle").innerText = "異常，請人員再次檢查";
-          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-red-500 animate-pulse";
-          document.getElementById("dispatchResultMsg").innerText = "截圖辨識之英文姓名與登記姓名不符，請核對下方資訊或手動修改。";
-        }
-
-        dispatchModal.classList.remove("hidden");
-      } catch (err) {
-        alert("派車單辨識失敗: " + err.message);
-      } finally {
-        dispatchLoadingOverlay.classList.add("hidden");
-      }
-    });
-
-    window.closeDispatchModal = () => {
-      dispatchModal.classList.add("hidden");
-      dispatchTargetGuestId = null;
-    };
 
     let editingGuestId = null;
     let drawerBaseHistoryPoints = 0;
@@ -1755,7 +2172,7 @@
       const clientName = profile.mainGuest?.name || '此客戶';
       const visitCount = profile.allVisits.length;
 
-      if (confirm(`【警告】確定要刪除「${clientName}」的所有資料嗎？\n這將一併刪除該客戶名下的全部 ${visitCount} 筆行程紀錄且無法復原！`)) {
+      if (confirm(`確定要刪除「${clientName}」的所有資料嗎？\n這將一併刪除該客戶名下的全部 ${visitCount} 筆行程紀錄且無法復原！`)) {
         try {
           const deletePromises = profile.allVisits.map(v => remove(ref(db, `guests/${v.id}`)));
           await Promise.all(deletePromises);
@@ -1869,6 +2286,7 @@
       document.getElementById("housekeepingView").classList.add("hidden");
       document.getElementById("crmView").classList.add("hidden");
       document.getElementById("usersView").classList.add("hidden");
+      document.getElementById("analyticsView").classList.add("hidden");
 
       document.getElementById("rosterStatsGrid").classList.add("hidden");
       document.getElementById("housekeepingStatsGrid").classList.add("hidden");
@@ -1880,6 +2298,7 @@
       document.getElementById("navHousekeepingBtn").className = defaultNavClass;
       document.getElementById("navCrmBtn").className = defaultNavClass;
       document.getElementById("navUsersBtn").className = defaultNavClass;
+      document.getElementById("navAnalyticsBtn").className = defaultNavClass;
 
       const pageTitle = document.getElementById("currentPageTitle");
 
@@ -1897,6 +2316,11 @@
         document.getElementById("crmView").classList.remove("hidden");
         document.getElementById("navCrmBtn").className = activeNavClass;
         pageTitle.innerText = "貴賓 CRM 客戶庫";
+      } else if (tab === 'analytics') {
+        document.getElementById("analyticsView").classList.remove("hidden");
+        document.getElementById("navAnalyticsBtn").className = activeNavClass;
+        pageTitle.innerText = "報表與營運分析";
+        renderAnalyticsDashboard();
       } else if (tab === 'users') {
         document.getElementById("usersView").classList.remove("hidden");
         document.getElementById("navUsersBtn").className = activeNavClass;
@@ -2023,6 +2447,11 @@
         <button id="navCrmBtn" onclick="switchTab('crm')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
           <span>貴賓 CRM 客戶庫</span>
+        </button>
+
+        <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          <span>報表與營運分析</span>
         </button>
 
         <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
@@ -2206,7 +2635,157 @@
       <div id="crmContainer" class="space-y-3"></div>
     </div>
 
-    <!-- 分頁 4: 員工與帳號權限管理 -->
+    <!-- 分頁 4: 報表與營運分析 (Google Analytics 級時間篩選與動態 BI) -->
+    <div id="analyticsView" class="hidden space-y-5">
+      
+      <!-- GA 級時間控制器 -->
+      <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
+        <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-white">時間區間篩選</h3>
+            <p class="text-[11px] text-neutral-400 mt-0.5">選擇欲分析的時間範圍，下方所有數據指標與圖表將動態即時運算。</p>
+          </div>
+          
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <button id="btnRangeToday" onclick="setAnalyticsRange('today')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">今日</button>
+            <button id="btnRange7d" onclick="setAnalyticsRange('7d')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">近 7 天</button>
+            <button id="btnRange30d" onclick="setAnalyticsRange('30d')" class="px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs transition shadow-sm">近 30 天</button>
+            <button id="btnRangeMonth" onclick="setAnalyticsRange('month')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">本月</button>
+            <button id="btnRange6m" onclick="setAnalyticsRange('6m')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">近 6 個月</button>
+            <button id="btnRangeAll" onclick="setAnalyticsRange('all')" class="px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-300 text-xs transition">全部歷史</button>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 pt-2 border-t border-neutral-800 text-xs">
+          <span class="text-neutral-400 font-medium">自訂起訖：</span>
+          <input id="analyticsStartInput" type="date" onchange="onCustomDateChange()" class="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 font-mono text-xs" />
+          <span class="text-neutral-500">至</span>
+          <input id="analyticsEndInput" type="date" onchange="onCustomDateChange()" class="px-3 py-1.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 font-mono text-xs" />
+        </div>
+      </div>
+
+      <!-- 6 大核心 KPI 矩陣 -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-400 font-medium">區間總旅客數</div>
+          <div id="kpiTotalGuests" class="text-xl sm:text-2xl font-black text-white font-mono">0</div>
+        </div>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-400 font-medium">平均停留天數</div>
+          <div class="text-xl sm:text-2xl font-black text-white font-mono"><span id="kpiAvgStay">0</span> <span class="text-xs text-neutral-500 font-normal">晚</span></div>
+        </div>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-400 font-medium">VIP 長期客戶數</div>
+          <div id="kpiVipCount" class="text-xl sm:text-2xl font-black text-red-400 font-mono">0</div>
+        </div>
+        <div class="bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-amber-400 font-medium">等待上傳派車單</div>
+          <div id="kpiPendingDispatch" class="text-xl sm:text-2xl font-black text-amber-400 font-mono">0</div>
+        </div>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-400 font-medium">資料未補齊名單</div>
+          <div id="kpiIncompleteData" class="text-xl sm:text-2xl font-black text-neutral-300 font-mono">0</div>
+        </div>
+        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-neutral-400 font-medium">異常/取消數量</div>
+          <div id="kpiAbnormalCount" class="text-xl sm:text-2xl font-black text-rose-400 font-mono">0</div>
+        </div>
+      </div>
+
+      <!-- 4 大核心圖表 (2x2 矩陣) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- 圖表 1: 走勢圖 -->
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-white">旅客到訪走勢趨勢圖</h4>
+            <span class="text-[10px] text-neutral-500">按日/按月統計</span>
+          </div>
+          <div class="h-60">
+            <canvas id="chartTrend"></canvas>
+          </div>
+        </div>
+
+        <!-- 圖表 2: 客群佔比 -->
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-white">客群結構分級佔比 (新客 / 短期 / VIP)</h4>
+            <span class="text-[10px] text-neutral-500">忠誠度分析</span>
+          </div>
+          <div class="h-60">
+            <canvas id="chartTier"></canvas>
+          </div>
+        </div>
+
+        <!-- 圖表 3: 渠道 UTM 統計 -->
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-white">導流渠道與推薦人來源 (UTM 轉換)</h4>
+            <span class="text-[10px] text-neutral-500">進單來源排名</span>
+          </div>
+          <div class="h-60">
+            <canvas id="chartUtm"></canvas>
+          </div>
+        </div>
+
+        <!-- 圖表 4: 專員處理量排行榜 -->
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+            <h4 class="text-xs font-bold text-white">接待專員處理量與積分排行榜</h4>
+            <span class="text-[10px] text-neutral-500">業績即時榜</span>
+          </div>
+          <div id="staffLeaderboardContainer" class="space-y-3 h-60 overflow-y-auto pr-1"></div>
+        </div>
+      </div>
+
+      <!-- 管理員作戰待辦工作區 (Action Workspace) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+        <!-- 待傳派車單清單 -->
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+            <h4 class="text-xs font-bold text-white">等待上傳派車單名單 (管理員專區)</h4>
+            <span class="text-[10px] text-amber-400">點擊直接上傳車單核對</span>
+          </div>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名</th>
+                  <th class="py-2 px-3">抵達時間</th>
+                  <th class="py-2 px-3">航班</th>
+                  <th class="py-2 px-3">專員</th>
+                  <th class="py-2 px-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="actionPendingDispatchBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 資料未補齊名單 -->
+        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+            <h4 class="text-xs font-bold text-white">資料未補齊客戶清單</h4>
+            <span class="text-[10px] text-neutral-400">需專員聯繫催件</span>
+          </div>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名 (LINE)</th>
+                  <th class="py-2 px-3">抵達日</th>
+                  <th class="py-2 px-3">缺漏項目</th>
+                  <th class="py-2 px-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="actionIncompleteBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 分頁 5: 員工與帳號權限管理 -->
     <div id="usersView" class="hidden space-y-4">
       <div class="bg-neutral-900 border border-neutral-800 p-4 sm:p-5 rounded-2xl space-y-4 shadow-md">
         
@@ -2228,6 +2807,24 @@
     </div>
 
   </main>
+
+  <!-- 派車單原圖燈箱 (z-[70]) -->
+  <div id="dispatchPhotoModal" onclick="if(event.target === this) closeDispatchPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+        <h3 id="dispatchModalTitle" class="text-sm font-bold text-white">貴賓派車單原圖</h3>
+        <button onclick="closeDispatchPhotoModal()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
+      </div>
+      <div class="flex items-center justify-center bg-neutral-950 rounded-xl p-2 max-h-[75vh] overflow-auto">
+        <img id="dispatchModalImg" src="" alt="派車單原圖" class="max-h-[70vh] w-auto object-contain rounded-lg shadow-md" />
+      </div>
+      <div class="flex justify-end pt-1">
+        <button onclick="closeDispatchPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl transition">
+          關閉預覽
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- 智慧客戶資料合併工作台彈窗 -->
   <div id="mergeModal" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50">
