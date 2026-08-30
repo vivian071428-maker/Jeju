@@ -30,10 +30,12 @@
 
     let allGuests = {};
     let allUsers = {};
+    let allTasks = {};
     let currentUser = null; 
     let activeTab = 'roster'; 
     let rosterFilter = 'all'; 
     let housekeepingFilter = 'all'; 
+    let taskFilter = 'active'; // 'active' | 'closed' | 'all'
     let unmaskedIds = new Set();
 
     let analyticsRangeType = '30d'; 
@@ -156,9 +158,11 @@
       if (currentUser.role === 'admin') {
         document.getElementById("navUsersBtn").classList.remove("hidden");
         document.getElementById("navAnalyticsBtn").classList.remove("hidden");
+        document.getElementById("adminCreateTaskBtn").classList.remove("hidden");
       } else {
         document.getElementById("navUsersBtn").classList.add("hidden");
         document.getElementById("navAnalyticsBtn").classList.add("hidden");
+        document.getElementById("adminCreateTaskBtn").classList.add("hidden");
         if (activeTab === 'analytics' || activeTab === 'users') {
           switchTab('roster');
         }
@@ -167,6 +171,7 @@
       initAnalyticsDates();
       loadDatabaseListener();
       loadUsersListener();
+      loadTasksListener();
     }
 
     window.logoutAccount = () => {
@@ -255,6 +260,14 @@
       onValue(usersRef, (snapshot) => {
         allUsers = snapshot.val() || {};
         renderUsersList();
+      });
+    }
+
+    function loadTasksListener() {
+      const tasksRef = ref(db, "tasks");
+      onValue(tasksRef, (snapshot) => {
+        allTasks = snapshot.val() || {};
+        renderTasksView();
       });
     }
 
@@ -540,7 +553,7 @@
 
         const stayDays = parseInt(g.stayDays, 10) || 5;
         const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (stayDays * 24 * 60 * 60 * 1000) : 0);
-        const isAutoArchived = (g.status === 'completed' || g.housekeepingStatus === 'closed' || (depTime > 0 && nowTs > depTime && !g.isDepartureUncertain));
+        const isAutoArchived = (g.status === 'completed' || g.status === 'checked_out' || g.housekeepingStatus === 'closed' || (depTime > 0 && nowTs > depTime && !g.isDepartureUncertain));
 
         const tripPoints = parseInt(g.points || 0, 10) || 0;
 
@@ -591,7 +604,7 @@
     }
 
     function getHousekeepingAlertLevel(g, nowTs) {
-      if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled' || g.status === 'merged') {
+      if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'checked_out' || g.status === 'cancelled' || g.status === 'merged') {
         return 'closed';
       }
 
@@ -623,6 +636,26 @@
       }
     }
 
+    // 取得旅客狀態標籤 HTML
+    function getStatusBadgeHtml(status, otherText = '') {
+      if (status === 'confirmed') {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-400 border border-blue-800/60 whitespace-nowrap">已確認</span>`;
+      } else if (status === 'picked_up') {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/60 whitespace-nowrap">已接機</span>`;
+      } else if (status === 'checked_in') {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60 whitespace-nowrap">已入住</span>`;
+      } else if (status === 'completed' || status === 'checked_out') {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700 whitespace-nowrap">已結案</span>`;
+      } else if (status === 'cancelled') {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60 whitespace-nowrap">已取消</span>`;
+      } else if (status === 'other') {
+        const displayNote = otherText ? otherText.replace(/"/g, '&quot;') : '無說明';
+        return `<button onclick="alert('其他狀態說明：\\n${displayNote}')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-600 transition whitespace-nowrap" title="點擊查看詳細說明">其他 (點此看)</button>`;
+      } else {
+        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-400 whitespace-nowrap">待確認</span>`;
+      }
+    }
+
     function renderDashboard() {
       const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
       const now = new Date();
@@ -633,7 +666,7 @@
       const profileMap = buildClientProfileMap(guestList, nowTs);
 
       let activeRosterList = guestList.filter(g => {
-        if (g.status === 'completed' || g.housekeepingStatus === 'closed' || g.status === 'cancelled') return false;
+        if (g.status === 'completed' || g.status === 'checked_out' || g.housekeepingStatus === 'closed' || g.status === 'cancelled') return false;
         const stayDays = parseInt(g.stayDays, 10) || 5;
         const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (stayDays * 24 * 60 * 60 * 1000) : 0);
         if (!g.isDepartureUncertain && depTime > 0 && nowTs > depTime) return false;
@@ -782,7 +815,8 @@
                (g.airline || "").toLowerCase().includes(searchVal) ||
                (g.returnAirline || "").toLowerCase().includes(searchVal) ||
                (g.staff || "").toLowerCase().includes(searchVal) ||
-               (g.note || "").toLowerCase().includes(searchVal);
+               (g.note || "").toLowerCase().includes(searchVal) ||
+               (g.statusOtherNote || "").toLowerCase().includes(searchVal);
       });
 
       filtered.sort((a, b) => {
@@ -819,10 +853,7 @@
           ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
           : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
-        let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-300 whitespace-nowrap">待確認</span>`;
-        if (g.status === 'confirmed') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-400 border border-blue-800/60 whitespace-nowrap">已確認</span>`;
-        if (g.status === 'checked_in') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60 whitespace-nowrap">已入住</span>`;
-        if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60 whitespace-nowrap">已取消</span>`;
+        const statusBadge = getStatusBadgeHtml(g.status, g.statusOtherNote);
 
         const passKey = (g.passport || '').trim().toUpperCase();
         const idKey = (g.nationalId || '').trim().toUpperCase();
@@ -1299,7 +1330,228 @@
     };
 
     // ==========================================
-    // 9. 報表與營運分析 (低飽和商務色調 + 嚴格 UTM 統計)
+    // 9. 任務派遣管理模組 (Task Dispatch Management)
+    // ==========================================
+    window.setTaskFilter = (type) => {
+      taskFilter = type;
+      renderTasksView();
+    };
+
+    window.openCreateTaskModal = () => {
+      if (currentUser?.role !== 'admin') {
+        alert("僅總管理員可建立派遣任務。");
+        return;
+      }
+      document.getElementById("taskTitleInput").value = "";
+      document.getElementById("taskDescInput").value = "";
+      document.getElementById("taskAssigneeInput").value = "";
+      document.getElementById("taskDueDateInput").value = "";
+      document.getElementById("taskModalError").classList.add("hidden");
+      document.getElementById("taskModal").classList.remove("hidden");
+    };
+
+    window.closeCreateTaskModal = () => {
+      document.getElementById("taskModal").classList.add("hidden");
+    };
+
+    window.submitCreateTask = async () => {
+      const title = document.getElementById("taskTitleInput").value.trim();
+      const description = document.getElementById("taskDescInput").value.trim();
+      const assigneeName = document.getElementById("taskAssigneeInput").value.trim();
+      const dueDate = document.getElementById("taskDueDateInput").value;
+      const errorEl = document.getElementById("taskModalError");
+
+      if (!title || !assigneeName || !dueDate) {
+        errorEl.textContent = "任務標題、任務負責人全名與截止時間皆為必填";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      // 檢查員工全名是否存在
+      const userList = Object.values(allUsers);
+      const isUserExist = userList.some(u => (u.name || '').trim().toLowerCase() === assigneeName.toLowerCase());
+
+      if (!isUserExist) {
+        errorEl.textContent = `查無姓名為「${assigneeName}」的員工，請確認全名輸入正確性（請至員工管理核對全名）`;
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      try {
+        await push(ref(db, "tasks"), {
+          title,
+          description,
+          assigneeName,
+          dueDate,
+          status: "pending", // 'pending' | 'in_progress' | 'completed' | 'delayed'
+          isClosed: false,
+          createdBy: currentUser.name,
+          createdAt: Date.now(),
+          staffRemark: ""
+        });
+        alert(`任務【${title}】已成功派遣指派給 ${assigneeName}！`);
+        closeCreateTaskModal();
+      } catch (err) {
+        errorEl.textContent = "任務建立失敗: " + err.message;
+        errorEl.classList.remove("hidden");
+      }
+    };
+
+    window.updateTaskByStaff = async (taskId) => {
+      const statusSelect = document.getElementById(`task_status_${taskId}`);
+      const remarkInput = document.getElementById(`task_remark_${taskId}`);
+      if (!statusSelect) return;
+
+      const newStatus = statusSelect.value;
+      const newRemark = remarkInput ? remarkInput.value.trim() : "";
+
+      try {
+        await update(ref(db, `tasks/${taskId}`), {
+          status: newStatus,
+          staffRemark: newRemark,
+          updatedAt: Date.now()
+        });
+        alert("任務狀態與說明已即時回傳更新！");
+      } catch (err) {
+        alert("更新失敗: " + err.message);
+      }
+    };
+
+    window.toggleTaskCloseByAdmin = async (taskId, currentClosedState) => {
+      if (currentUser?.role !== 'admin') {
+        alert("僅總管理員可執行任務結案/重啟。");
+        return;
+      }
+
+      const nextState = !currentClosedState;
+      const msg = nextState ? "確認要將此任務正式【標記結案】嗎？（任務資料將永久保留於已結案清單）" : "確認要【重啟】此已結案任務？";
+      if (!confirm(msg)) return;
+
+      try {
+        await update(ref(db, `tasks/${taskId}`), {
+          isClosed: nextState,
+          closedAt: nextState ? Date.now() : null,
+          closedBy: nextState ? currentUser.name : null
+        });
+      } catch (err) {
+        alert("操作失敗: " + err.message);
+      }
+    };
+
+    function renderTasksView() {
+      const container = document.getElementById("tasksContainer");
+      const isAdmin = (currentUser?.role === 'admin');
+      const currentUserName = (currentUser?.name || '').trim().toLowerCase();
+
+      let list = Object.entries(allTasks).map(([id, data]) => ({ id, ...data }));
+
+      // 權限篩選：員工只能看到指派給自己全名的任務
+      if (!isAdmin) {
+        list = list.filter(t => (t.assigneeName || '').trim().toLowerCase() === currentUserName);
+      }
+
+      // 狀態篩選：進行中 vs 已結案
+      if (taskFilter === 'active') {
+        list = list.filter(t => !t.isClosed);
+      } else if (taskFilter === 'closed') {
+        list = list.filter(t => t.isClosed);
+      }
+
+      list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      // 更新快捷按鈕樣式
+      const btns = {
+        'active': document.getElementById("taskBtnActive"),
+        'closed': document.getElementById("taskBtnClosed"),
+        'all': document.getElementById("taskBtnAll")
+      };
+      Object.entries(btns).forEach(([k, el]) => {
+        if (!el) return;
+        if (taskFilter === k) {
+          el.className = "px-3 py-1.5 rounded-xl bg-red-600 text-white font-bold text-xs transition shadow-sm";
+        } else {
+          el.className = "px-3 py-1.5 rounded-xl bg-neutral-900 border border-neutral-800 hover:border-neutral-700 text-neutral-400 text-xs transition";
+        }
+      });
+
+      if (list.length === 0) {
+        container.innerHTML = `<div class="col-span-full text-center py-12 text-neutral-500 text-xs">目前無符合條件的派遣任務。</div>`;
+        return;
+      }
+
+      container.innerHTML = list.map(t => {
+        const isClosed = !!t.isClosed;
+        const statusMap = {
+          'pending': { text: '待處理', class: 'bg-neutral-800 text-neutral-300' },
+          'in_progress': { text: '處理中', class: 'bg-blue-950 border border-blue-800 text-blue-300 font-bold' },
+          'completed': { text: '已完成', class: 'bg-emerald-950 border border-emerald-800 text-emerald-400 font-bold' },
+          'delayed': { text: '延遲', class: 'bg-rose-950 border border-rose-800 text-rose-400 font-bold' }
+        };
+
+        const currentStatusInfo = statusMap[t.status] || statusMap['pending'];
+
+        return `
+          <div class="bg-neutral-900 border ${isClosed ? 'border-neutral-800 opacity-60' : 'border-neutral-800/90'} rounded-2xl p-4 space-y-3.5 shadow-lg hover:border-neutral-700 transition flex flex-col justify-between">
+            <div class="space-y-2">
+              <div class="flex items-start justify-between gap-2 border-b border-neutral-800 pb-2.5">
+                <div class="space-y-0.5 min-w-0">
+                  <div class="text-sm font-bold text-white truncate">${t.title || '未命名任務'}</div>
+                  <div class="text-[11px] text-neutral-400">
+                    負責人: <b class="text-red-400 font-bold">${t.assigneeName || '未指定'}</b> 
+                    <span class="text-neutral-600 mx-1">|</span> 
+                    派發: ${t.createdBy || '管理員'}
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                  <span class="px-2 py-0.5 rounded text-[10px] ${currentStatusInfo.class}">${currentStatusInfo.text}</span>
+                  ${isClosed ? `<span class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-950 text-neutral-500 font-bold border border-neutral-800">已結案</span>` : ''}
+                </div>
+              </div>
+
+              ${t.description ? `<div class="text-xs text-neutral-300 bg-neutral-950/60 p-2.5 rounded-xl border border-neutral-800/80 leading-relaxed">${t.description}</div>` : ''}
+
+              <div class="text-xs text-neutral-400 space-y-1">
+                <div>截止時間: <span class="text-amber-400 font-mono font-medium">${t.dueDate ? t.dueDate.replace('T', ' ') : '無指定'}</span></div>
+                ${t.staffRemark ? `<div>目前狀況說明: <span class="text-neutral-200">${t.staffRemark}</span></div>` : ''}
+              </div>
+            </div>
+
+            <!-- 操作區 -->
+            <div class="pt-3 border-t border-neutral-800 space-y-2.5 text-xs">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-[10px] text-neutral-400 mb-1">更新任務狀態</label>
+                  <select id="task_status_${t.id}" class="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500 font-medium">
+                    <option value="pending" ${t.status === 'pending' ? 'selected' : ''}>待處理</option>
+                    <option value="in_progress" ${t.status === 'in_progress' ? 'selected' : ''}>處理中</option>
+                    <option value="completed" ${t.status === 'completed' ? 'selected' : ''}>完成</option>
+                    <option value="delayed" ${t.status === 'delayed' ? 'selected' : ''}>延遲</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-[10px] text-neutral-400 mb-1">狀況說明填寫</label>
+                  <input id="task_remark_${t.id}" value="${t.staffRemark || ''}" placeholder="輸入進度或狀況..." class="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500" />
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2 pt-1">
+                <button onclick="updateTaskByStaff('${t.id}')" class="flex-1 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-xl text-xs font-bold transition">
+                  回傳進度
+                </button>
+                ${isAdmin ? `
+                  <button onclick="toggleTaskCloseByAdmin('${t.id}', ${isClosed})" class="px-3 py-1.5 ${isClosed ? 'bg-neutral-950 text-neutral-400 border border-neutral-800' : 'bg-red-950 text-red-300 border border-red-800/80 hover:bg-red-900'} rounded-xl text-xs font-bold transition whitespace-nowrap">
+                    ${isClosed ? '重啟任務' : '勾選結案'}
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // ==========================================
+    // 10. 報表與營運分析
     // ==========================================
     function initAnalyticsDates() {
       const now = new Date();
@@ -1422,7 +1674,7 @@
         else if (p.clientType === 'short') shortCount++;
         else newCount++;
 
-        if (!g.dispatchVerified && g.status !== 'cancelled' && g.status !== 'completed') {
+        if (!g.dispatchVerified && g.status !== 'cancelled' && g.status !== 'completed' && g.status !== 'checked_out') {
           pendingDispatchList.push(g);
         }
 
@@ -1438,7 +1690,6 @@
         staffMap[staffName].count += 1;
         staffMap[staffName].points += (parseInt(g.points, 10) || 0);
 
-        // 嚴格 UTM 統計：不參雜推薦人，無 UTM 參數一律計為 direct
         const cleanUtm = (g.utmSource && g.utmSource.trim()) ? g.utmSource.trim() : 'direct';
         utmMap[cleanUtm] = (utmMap[cleanUtm] || 0) + 1;
 
@@ -1664,7 +1915,7 @@
     }
 
     // ==========================================
-    // 10. 智慧客戶資料合併工作台
+    // 11. 智慧客戶資料合併工作台
     // ==========================================
     let mergeTargetMasterId = null;
     let mergeTargetSecondaryId = null;
@@ -1809,7 +2060,7 @@
       const headers = [
         "會員編號", "中文姓名", "護照英文姓名", "推薦人", "護照號碼", "身分證字號", "客群分類",
         "累積總積分", "本次發放積分", "性別", "出生年月日", "LINE暱稱",
-        "去程航班", "抵達時間", "回程航班", "離開時間(起飛)", "停留晚數", "接待專員", "狀態", "客戶需求與備註"
+        "去程航班", "抵達時間", "回程航班", "離開時間(起飛)", "停留晚數", "接待專員", "狀態", "其他狀態說明", "客戶需求與備註"
       ];
 
       const rows = list.map(g => {
@@ -1841,6 +2092,7 @@
           `"${g.isDepartureUncertain ? `暫定${stayDays}晚` : stayDays}"`,
           `"${(g.staff || '').replace(/"/g, '""')}"`,
           `"${g.status || 'pending'}"`,
+          `"${(g.statusOtherNote || '').replace(/"/g, '""')}"`,
           `"${(g.note || '').replace(/"/g, '""')}"`
         ];
       });
@@ -1954,7 +2206,17 @@
       document.getElementById("editDepartureUncertain").checked = !!g.isDepartureUncertain;
       document.getElementById("editStayDays").value = g.stayDays || (g.isDepartureUncertain ? 5 : 1);
       document.getElementById("editStaff").value = g.staff || '';
-      document.getElementById("editStatus").value = g.status || 'pending';
+      
+      const statusVal = g.status || 'pending';
+      document.getElementById("editStatus").value = statusVal;
+      document.getElementById("editStatusOtherNote").value = g.statusOtherNote || '';
+      
+      if (statusVal === 'other') {
+        document.getElementById("statusOtherContainer").classList.remove("hidden");
+      } else {
+        document.getElementById("statusOtherContainer").classList.add("hidden");
+      }
+
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editNote").value = g.note || '';
 
@@ -2026,6 +2288,19 @@
       document.getElementById("toggleHistoryBtn").innerText = `展開行程明細 (預約 ${profile.upcomingVisits.length} / 歷史 ${profile.historyVisits.length})`;
       document.getElementById("editDrawerModal").classList.remove("hidden");
     };
+
+    // 狀態選單切換事件：選「其他」時展開輸入欄
+    document.getElementById("editStatus").addEventListener("change", (e) => {
+      const isOther = (e.target.value === 'other');
+      const otherContainer = document.getElementById("statusOtherContainer");
+      if (isOther) {
+        otherContainer.classList.remove("hidden");
+        document.getElementById("editStatusOtherNote").focus();
+      } else {
+        otherContainer.classList.add("hidden");
+        document.getElementById("editStatusOtherNote").value = "";
+      }
+    });
 
     document.getElementById("editStayDays").addEventListener("input", (e) => {
       const days = parseInt(e.target.value, 10);
@@ -2114,6 +2389,9 @@
         depVal = `${arrDate.getFullYear()}-${pad(arrDate.getMonth() + 1)}-${pad(arrDate.getDate())}T06:00`;
       }
 
+      const statusVal = document.getElementById("editStatus").value;
+      const statusOtherNote = (statusVal === 'other') ? document.getElementById("editStatusOtherNote").value.trim().slice(0, 20) : "";
+
       const updatedData = {
         memberId: document.getElementById("editMemberId").value.trim().toUpperCase(),
         name: document.getElementById("editName").value.trim(),
@@ -2131,7 +2409,8 @@
         isDepartureUncertain: isUncertain,
         stayDays: stayDaysInput,
         staff: document.getElementById("editStaff").value.trim(),
-        status: document.getElementById("editStatus").value,
+        status: statusVal,
+        statusOtherNote: statusOtherNote,
         points: parseInt(document.getElementById("editPoints").value, 10) || 0,
         note: document.getElementById("editNote").value.trim()
       };
@@ -2283,6 +2562,7 @@
       document.getElementById("rosterView").classList.add("hidden");
       document.getElementById("housekeepingView").classList.add("hidden");
       document.getElementById("crmView").classList.add("hidden");
+      document.getElementById("tasksView").classList.add("hidden");
       document.getElementById("usersView").classList.add("hidden");
       document.getElementById("analyticsView").classList.add("hidden");
 
@@ -2295,6 +2575,7 @@
       document.getElementById("navRosterBtn").className = defaultNavClass;
       document.getElementById("navHousekeepingBtn").className = defaultNavClass;
       document.getElementById("navCrmBtn").className = defaultNavClass;
+      document.getElementById("navTasksBtn").className = defaultNavClass;
       document.getElementById("navUsersBtn").className = defaultNavClass;
       document.getElementById("navAnalyticsBtn").className = defaultNavClass;
 
@@ -2314,6 +2595,11 @@
         document.getElementById("crmView").classList.remove("hidden");
         document.getElementById("navCrmBtn").className = activeNavClass;
         pageTitle.innerText = "貴賓 CRM 客戶庫";
+      } else if (tab === 'tasks') {
+        document.getElementById("tasksView").classList.remove("hidden");
+        document.getElementById("navTasksBtn").className = activeNavClass;
+        pageTitle.innerText = "任務派遣與回報";
+        renderTasksView();
       } else if (tab === 'analytics') {
         document.getElementById("analyticsView").classList.remove("hidden");
         document.getElementById("navAnalyticsBtn").className = activeNavClass;
@@ -2445,6 +2731,12 @@
         <button id="navCrmBtn" onclick="switchTab('crm')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
           <span>貴賓 CRM 客戶庫</span>
+        </button>
+
+        <!-- 任務派遣分頁 -->
+        <button id="navTasksBtn" onclick="switchTab('tasks')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
+          <span>任務派遣與回報</span>
         </button>
 
         <!-- 管理員專屬：報表與營運分析 -->
@@ -2635,10 +2927,37 @@
       <div id="crmContainer" class="space-y-3"></div>
     </div>
 
-    <!-- 分頁 4: 報表與營運分析 (僅限總管理員查看) -->
+    <!-- 分頁 4: 任務派遣與回報看板 -->
+    <div id="tasksView" class="hidden space-y-4">
+      <div class="bg-neutral-900 border border-neutral-800 p-4 sm:p-5 rounded-2xl space-y-4 shadow-md">
+        
+        <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between border-b border-neutral-800 pb-3.5">
+          <div>
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <span>任務派遣與回報中心</span>
+            </h3>
+            <p class="text-[11px] text-neutral-400 mt-0.5">管理員可指派任務給指定全名之接待專員，專員可即時回傳狀態與說明。</p>
+          </div>
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <div class="flex items-center gap-1 bg-neutral-950 p-1 rounded-xl border border-neutral-800 text-xs">
+              <button id="taskBtnActive" onclick="setTaskFilter('active')" class="px-3 py-1 rounded-lg bg-red-600 text-white font-bold transition">進行中</button>
+              <button id="taskBtnClosed" onclick="setTaskFilter('closed')" class="px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition">已結案</button>
+              <button id="taskBtnAll" onclick="setTaskFilter('all')" class="px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition">全部</button>
+            </div>
+            <button id="adminCreateTaskBtn" onclick="openCreateTaskModal()" class="px-3.5 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-red-950 whitespace-nowrap">
+              <span>＋ 建立派遣任務</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="tasksContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+
+      </div>
+    </div>
+
+    <!-- 分頁 5: 報表與營運分析 (僅限總管理員查看) -->
     <div id="analyticsView" class="hidden space-y-5">
       
-      <!-- GA 級時間控制器 -->
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
         <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-3">
           <div>
@@ -2692,7 +3011,7 @@
         </div>
       </div>
 
-      <!-- 4 大核心圖表 (沉穩莫蘭迪低飽和色系) -->
+      <!-- 4 大核心圖表 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
@@ -2733,7 +3052,7 @@
         </div>
       </div>
 
-      <!-- 管理員作戰待辦工作區 (Action Workspace) -->
+      <!-- 管理員作戰待辦工作區 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -2779,7 +3098,7 @@
 
     </div>
 
-    <!-- 分頁 5: 員工與帳號權限管理 -->
+    <!-- 分頁 6: 員工與帳號權限管理 -->
     <div id="usersView" class="hidden space-y-4">
       <div class="bg-neutral-900 border border-neutral-800 p-4 sm:p-5 rounded-2xl space-y-4 shadow-md">
         
@@ -2801,6 +3120,42 @@
     </div>
 
   </main>
+
+  <!-- 建立派遣任務彈窗 (管理員專屬) -->
+  <div id="taskModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+        <h3 class="text-sm font-bold text-white">建立臨時派遣任務</h3>
+        <button onclick="closeCreateTaskModal()" class="text-neutral-400 hover:text-white font-bold p-1">✕</button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">任務標題 *</label>
+          <input id="taskTitleInput" placeholder="例：前往樂天飯店確認貴賓延住" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+        </div>
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">任務負責人全名 * <span class="text-[10px] text-neutral-500">(須與系統員工名冊全名一致)</span></label>
+          <input id="taskAssigneeInput" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+        </div>
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">任務截止時間 *</label>
+          <input id="taskDueDateInput" type="datetime-local" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+        </div>
+        <div>
+          <label class="block text-neutral-300 font-semibold mb-1">詳細說明 / 注意事項</label>
+          <textarea id="taskDescInput" rows="3" placeholder="請填寫具體任務細節、聯絡電話或房號..." class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
+        </div>
+      </div>
+
+      <p id="taskModalError" class="hidden text-xs text-red-400 bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+
+      <div class="flex gap-2 pt-2 border-t border-neutral-800">
+        <button onclick="closeCreateTaskModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
+        <button onclick="submitCreateTask()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認指派任務</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 派車單原圖燈箱 -->
   <div id="dispatchPhotoModal" onclick="if(event.target === this) closeDispatchPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
@@ -2943,7 +3298,7 @@
 
       <div class="space-y-3 text-xs">
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">員工真實姓名 *</label>
+          <label class="block text-neutral-300 font-semibold mb-1">員工真實全名 *</label>
           <input id="newUserName" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
@@ -3155,11 +3510,19 @@
             <select id="editStatus" class="w-full px-2 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs">
               <option value="pending">待確認</option>
               <option value="confirmed">已確認</option>
+              <option value="picked_up">已接機</option>
               <option value="checked_in">已入住</option>
-              <option value="completed">已完成/結案</option>
+              <option value="completed">已結案</option>
               <option value="cancelled">已取消</option>
+              <option value="other">其他</option>
             </select>
           </div>
+        </div>
+
+        <!-- 狀態為「其他」時動態出現的輸入欄 (限20字內) -->
+        <div id="statusOtherContainer" class="hidden">
+          <label class="block text-amber-400 font-semibold mb-1">其他狀態具體說明 <span class="text-[10px] text-neutral-500">(限 20 字以內)</span></label>
+          <input id="editStatusOtherNote" maxlength="20" placeholder="例如：等候改簽航班、客人自主退訂..." class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-300 outline-none focus:border-amber-500 text-xs" />
         </div>
 
         <div>
