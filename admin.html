@@ -291,7 +291,6 @@
       renderDashboard();
     };
 
-    // 搜尋監聽
     document.getElementById("searchInput")?.addEventListener("input", () => renderDashboard());
     document.getElementById("unifiedFilterSelect")?.addEventListener("change", (e) => {
       const isRef = e.target.value === 'referrer';
@@ -1283,7 +1282,7 @@
           ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
           : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
-        let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 text-xs font-medium">新客/單次</span>`;
+        let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-blue-950 border border-blue-800 text-blue-400 text-xs font-medium">新客/單次</span>`;
         if (p.clientType === 'long') {
           clientTypeTag = `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-red-300 text-xs font-bold">長期客戶</span>`;
         } else if (p.clientType === 'short') {
@@ -1733,7 +1732,7 @@
     };
 
     // ==========================================
-    // 任務派遣模組（完全依照圖一、圖二 UI 與邏輯）
+    // 任務派遣模組
     // ==========================================
     window.openCreateTaskModal = () => {
       if (currentUser?.role !== 'admin') return;
@@ -1814,7 +1813,6 @@
       const isAdmin = (currentUser?.role === 'admin');
 
       container.innerHTML = list.map(t => {
-        const isCompleted = (t.status === 'completed');
         const formattedDueDate = t.dueDate ? t.dueDate.replace('T', ' ') : '-';
         
         const statusMap = {
@@ -1884,7 +1882,7 @@
     }
 
     // ==========================================
-    // 報表與營運分析（完整 4 圖表 + 6 KPI 矩陣 + 作戰待辦區）
+    // 報表與營運分析（修正 Y 軸小數點、新客顏色、UTM來源與補件判斷）
     // ==========================================
     function initAnalyticsDates() {
       const now = new Date();
@@ -1948,6 +1946,17 @@
       renderAnalyticsDashboard();
     };
 
+    function normalizeUtmSource(raw) {
+      if (!raw) return 'direct';
+      const clean = String(raw).trim().toLowerCase();
+      if (clean.includes('line')) return 'LINE';
+      if (clean.includes('tg') || clean.includes('telegram')) return 'TG';
+      if (clean.includes('ig') || clean.includes('instagram')) return 'IG';
+      if (clean.includes('fb') || clean.includes('facebook')) return 'FB';
+      if (clean === 'direct') return 'direct';
+      return clean.toUpperCase();
+    }
+
     function renderAnalyticsDashboard() {
       const guestList = Object.entries(allGuests).map(([id, d]) => ({ id, ...d })).filter(g => g.status !== 'merged');
       const profileMap = buildClientProfileMap(guestList, Date.now());
@@ -1969,7 +1978,7 @@
       let tierLong = 0;
       let tierShort = 0;
       let tierOther = 0;
-      const utmMap = {};
+      const utmMap = { 'LINE': 0, 'TG': 0, 'IG': 0, 'FB': 0, 'direct': 0 };
 
       filtered.forEach(g => {
         const sDays = parseInt(g.stayDays, 10) || 5;
@@ -1991,11 +2000,14 @@
           pendingDispatchList.push(g);
         }
 
+        // 準確判定未補齊項目
         const missing = [];
-        if (!g.passport) missing.push('護照號');
-        if (!g.nationalId) missing.push('身分證');
-        if (!g.airline) missing.push('航班');
-        if (missing.length > 0) {
+        if (!g.passport || !g.passport.trim()) missing.push('護照號碼');
+        if (!g.nationalId || !g.nationalId.trim()) missing.push('身分證字號');
+        if (!g.airline || !g.airline.trim()) missing.push('去程航班');
+        if (!g.passportImage) missing.push('護照照片');
+        
+        if (missing.length > 0 && g.status !== 'cancelled') {
           incompleteList.push({ ...g, missingText: missing.join('、') });
         }
 
@@ -2008,11 +2020,11 @@
         const arrD = g.arrival ? g.arrival.split('T')[0] : '未排期';
         trendMap[arrD] = (trendMap[arrD] || 0) + 1;
 
-        const utm = g.utmSource || g.referrer || 'direct';
-        utmMap[utm] = (utmMap[utm] || 0) + 1;
+        // 純粹統計 UTM，不抓取推薦人
+        const normalizedUtm = normalizeUtmSource(g.utmSource);
+        utmMap[normalizedUtm] = (utmMap[normalizedUtm] || 0) + 1;
       });
 
-      // 6 大 KPI 渲染
       document.getElementById("kpiTotalGuests").innerText = filtered.length;
       document.getElementById("kpiAvgStay").innerText = filtered.length ? (totalStay / filtered.length).toFixed(1) : 0;
       document.getElementById("kpiVipCount").innerText = vipCount;
@@ -2020,7 +2032,6 @@
       document.getElementById("kpiIncompleteData").innerText = incompleteList.length;
       document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
 
-      // 專員榜渲染
       const staffBox = document.getElementById("staffLeaderboardContainer");
       if (staffBox) {
         const staffEntries = Object.entries(staffPointsMap).sort((a, b) => b[1] - a[1]);
@@ -2040,7 +2051,6 @@
         }
       }
 
-      // 作戰待辦表格 1: 等待上傳車單
       const pendingDispatchBody = document.getElementById("actionPendingDispatchBody");
       if (pendingDispatchBody) {
         if (pendingDispatchList.length === 0) {
@@ -2060,7 +2070,6 @@
         }
       }
 
-      // 作戰待辦表格 2: 未補齊資料名單
       const incompleteBody = document.getElementById("actionIncompleteBody");
       if (incompleteBody) {
         if (incompleteList.length === 0) {
@@ -2079,7 +2088,7 @@
         }
       }
 
-      // Chart 1: 走勢圖
+      // Chart 1: 到訪走勢圖 (強制整數刻度)
       const trendCtx = document.getElementById("chartTrend")?.getContext("2d");
       if (trendCtx) {
         const sortedDates = Object.keys(trendMap).sort();
@@ -2096,7 +2105,8 @@
               backgroundColor: 'rgba(239, 68, 68, 0.15)',
               fill: true,
               tension: 0.35,
-              pointBackgroundColor: '#ef4444'
+              pointBackgroundColor: '#ef4444',
+              pointRadius: 4
             }]
           },
           options: {
@@ -2105,13 +2115,22 @@
             plugins: { legend: { display: false } },
             scales: {
               x: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' } },
-              y: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' }, beginAtZero: true }
+              y: { 
+                ticks: { 
+                  color: '#737373', 
+                  font: { size: 10 },
+                  precision: 0,
+                  stepSize: 1
+                }, 
+                grid: { color: '#262626' }, 
+                beginAtZero: true 
+              }
             }
           }
         });
       }
 
-      // Chart 2: 分級圓餅圖
+      // Chart 2: 分級圓餅圖 (新客使用藍色 #3b82f6)
       const tierCtx = document.getElementById("chartTier")?.getContext("2d");
       if (tierCtx) {
         if (chartTierInstance) chartTierInstance.destroy();
@@ -2121,7 +2140,7 @@
             labels: ['長期客戶', '短期客戶', '新客/單次'],
             datasets: [{
               data: [tierLong, tierShort, tierOther],
-              backgroundColor: ['#dc2626', '#d97706', '#525252'],
+              backgroundColor: ['#dc2626', '#d97706', '#3b82f6'],
               borderColor: '#171717',
               borderWidth: 2
             }]
@@ -2136,19 +2155,19 @@
         });
       }
 
-      // Chart 3: UTM 來源圖
+      // Chart 3: UTM 來源圖 (5 大來源，Y 軸強制整數刻度)
       const utmCtx = document.getElementById("chartUtm")?.getContext("2d");
       if (utmCtx) {
         const utmLabels = Object.keys(utmMap);
-        const utmValues = utmLabels.map(l => utmMap[l]);
+        const utmValues = Object.values(utmMap);
         if (chartUtmInstance) chartUtmInstance.destroy();
         chartUtmInstance = new Chart(utmCtx, {
           type: 'bar',
           data: {
-            labels: utmLabels.length ? utmLabels : ['無'],
+            labels: utmLabels,
             datasets: [{
               label: '進單數',
-              data: utmValues.length ? utmValues : [0],
+              data: utmValues,
               backgroundColor: '#3b82f6',
               borderRadius: 6
             }]
@@ -2159,7 +2178,16 @@
             plugins: { legend: { display: false } },
             scales: {
               x: { ticks: { color: '#737373', font: { size: 10 } }, grid: { display: false } },
-              y: { ticks: { color: '#737373', font: { size: 10 } }, grid: { color: '#262626' }, beginAtZero: true }
+              y: { 
+                ticks: { 
+                  color: '#737373', 
+                  font: { size: 10 },
+                  precision: 0,
+                  stepSize: 1
+                }, 
+                grid: { color: '#262626' }, 
+                beginAtZero: true 
+              }
             }
           }
         });
@@ -2174,9 +2202,9 @@
         return;
       }
 
-      let csv = "\uFEFF姓名,英文姓名,護照號碼,身分證,電話,航班,抵達時間,離開時間,住宿天數,積分,接待專員,狀態,備註\n";
+      let csv = "\uFEFF姓名,英文姓名,護照號碼,身分證,電話,航班,抵達時間,離開時間,住宿天數,積分,接待專員,狀態,UTM來源,備註\n";
       list.forEach(g => {
-        csv += `"${g.name || ''}","${g.englishName || ''}","${g.passport || ''}","${g.nationalId || ''}","${g.phone || ''}","${g.airline || ''}","${g.arrival || ''}","${g.departure || ''}","${g.stayDays || 5}","${g.points || 0}","${g.staff || ''}","${g.status || ''}","${(g.note || '').replace(/"/g, '""')}"\n`;
+        csv += `"${g.name || ''}","${g.englishName || ''}","${g.passport || ''}","${g.nationalId || ''}","${g.phone || ''}","${g.airline || ''}","${g.arrival || ''}","${g.departure || ''}","${g.stayDays || 5}","${g.points || 0}","${g.staff || ''}","${g.status || ''}","${g.utmSource || 'direct'}","${(g.note || '').replace(/"/g, '""')}"\n`;
       });
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -2488,7 +2516,7 @@
       </div>
     </div>
 
-    <!-- 分頁 5: 報表與營運分析（100% 還原原版完整結構） -->
+    <!-- 分頁 5: 報表與營運分析（完整修正） -->
     <div id="analyticsView" class="hidden space-y-5">
       
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
@@ -2549,7 +2577,7 @@
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
             <h4 class="text-xs font-bold text-neutral-200">旅客到訪走勢趨勢圖</h4>
-            <span class="text-[10px] text-neutral-500">按日/按月統計</span>
+            <span class="text-[10px] text-neutral-500">按日/按月統計 (整數人數)</span>
           </div>
           <div class="h-60">
             <canvas id="chartTrend"></canvas>
@@ -2559,7 +2587,7 @@
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
             <h4 class="text-xs font-bold text-neutral-200">客群結構分級佔比</h4>
-            <span class="text-[10px] text-neutral-500">忠誠度結構</span>
+            <span class="text-[10px] text-neutral-500">忠誠度結構 (新客為藍色)</span>
           </div>
           <div class="h-60">
             <canvas id="chartTier"></canvas>
@@ -2568,8 +2596,8 @@
 
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-neutral-200">導流渠道 UTM 轉換來源 (無UTM計為 direct)</h4>
-            <span class="text-[10px] text-neutral-500">進單來源排名</span>
+            <h4 class="text-xs font-bold text-neutral-200">導流渠道 UTM 轉換來源</h4>
+            <span class="text-[10px] text-neutral-500">LINE / TG / IG / FB / direct</span>
           </div>
           <div class="h-60">
             <canvas id="chartUtm"></canvas>
@@ -2611,7 +2639,7 @@
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
             <h4 class="text-xs font-bold text-white">資料未補齊客戶清單</h4>
-            <span class="text-[10px] text-neutral-400">需專員聯繫催件</span>
+            <span class="text-[10px] text-neutral-400">需專員聯繫催件 (護照/身分證/航班/照片)</span>
           </div>
           <div class="overflow-x-auto max-h-64 overflow-y-auto">
             <table class="w-full text-left">
@@ -2654,7 +2682,7 @@
 
   </main>
 
-  <!-- 建立派遣任務彈窗（完全符合圖一） -->
+  <!-- 建立派遣任務彈窗 -->
   <div id="taskModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-[#121212] border border-neutral-800 rounded-3xl p-6 sm:p-7 max-w-md w-full space-y-5 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3">
