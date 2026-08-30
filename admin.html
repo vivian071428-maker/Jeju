@@ -304,7 +304,6 @@
     document.getElementById("crmMetricFilter")?.addEventListener("change", () => renderDashboard());
     document.getElementById("crmSortBy")?.addEventListener("change", () => renderDashboard());
 
-    // 密碼變更模組
     window.openChangePasswordModal = () => {
       document.getElementById("changePassOld").value = "";
       document.getElementById("changePassNew").value = "";
@@ -389,7 +388,6 @@
       });
     }
 
-    // 員工帳號管理
     window.openAddUserModal = () => {
       document.getElementById("newUserName").value = "";
       document.getElementById("newUserEmail").value = "";
@@ -433,12 +431,7 @@
 
       try {
         await push(ref(db, "users"), {
-          name,
-          email,
-          username,
-          password,
-          role,
-          createdAt: Date.now()
+          name, email, username, password, role, createdAt: Date.now()
         });
         alert(`員工帳號【${name}】建立成功！\n帳號: ${username}\n密碼: ${password}`);
         window.closeUserModal();
@@ -975,7 +968,7 @@
 
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [] };
         
-        let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-medium whitespace-nowrap">新客</span>`;
+        let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-blue-950 border border-blue-800 text-blue-400 text-[10px] font-medium whitespace-nowrap">新客</span>`;
         if (profile.clientType === 'long') {
           clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-red-950 border border-red-800/60 text-red-300 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
         } else if (profile.clientType === 'short') {
@@ -1549,7 +1542,7 @@
     };
 
     window.copyLineCareText = (name, staff, dep, nights) => {
-      const msg = `您好 ${name} 貴賓～我是濟州接待專員 ${staff}。提醒您目前住宿剩餘約 ${nights} 晚（預計離開：${dep.split('T')[0]}）。如需為您安排延住續訂、預約專車接送或安排餐廳，隨時為您服務！`;
+      const msg = `您好 ${name} ，我是濟州接待專員 ${staff}。提醒您預計退房時間為${dep.split('T')[0]}）。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於告知我們喔！;
       navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
     };
 
@@ -1882,7 +1875,7 @@
     }
 
     // ==========================================
-    // 報表與營運分析（修正 Y 軸小數點、新客顏色、UTM來源與補件判斷）
+    // 報表與營運分析（全量精準未補齊檢測）
     // ==========================================
     function initAnalyticsDates() {
       const now = new Date();
@@ -1961,6 +1954,31 @@
       const guestList = Object.entries(allGuests).map(([id, d]) => ({ id, ...d })).filter(g => g.status !== 'merged');
       const profileMap = buildClientProfileMap(guestList, Date.now());
 
+      // 1. 針對所有【活躍/進行中未結案/未取消】的客戶，進行全量待辦檢查
+      let allActivePendingDispatch = [];
+      let allActiveIncompleteList = [];
+
+      guestList.forEach(g => {
+        if (g.status === 'completed' || g.status === 'checked_out' || g.housekeepingStatus === 'closed' || g.status === 'cancelled') return;
+
+        if (!g.dispatchVerified) {
+          allActivePendingDispatch.push(g);
+        }
+
+        const missing = [];
+        if (!g.passport || !g.passport.trim()) missing.push('護照號碼');
+        if (!g.nationalId || !g.nationalId.trim()) missing.push('身分證');
+        if (!g.passportImage) missing.push('護照照片');
+        if (!g.airline || !g.airline.trim()) missing.push('去程航班');
+        if (!g.returnAirline || !g.returnAirline.trim() || g.returnAirline === '-' || g.isDepartureUncertain) missing.push('回程航班/時間');
+        if (!g.birthday || !g.birthday.trim()) missing.push('出生年月日');
+
+        if (missing.length > 0) {
+          allActiveIncompleteList.push({ ...g, missingText: missing.join('、') });
+        }
+      });
+
+      // 2. 依日期區間過濾 KPI 與走勢圖
       const filtered = guestList.filter(g => {
         const dateStr = g.arrival ? g.arrival.split('T')[0] : '';
         if (!dateStr) return true;
@@ -1969,8 +1987,6 @@
 
       let totalStay = 0;
       let vipCount = 0;
-      let pendingDispatchList = [];
-      let incompleteList = [];
       let abnormalCount = 0;
       const staffPointsMap = {};
       const staffTasksMap = {};
@@ -1995,22 +2011,6 @@
         else tierOther++;
 
         if (p.clientType === 'long') vipCount++;
-
-        if (!g.dispatchVerified && g.status !== 'cancelled') {
-          pendingDispatchList.push(g);
-        }
-
-        // 準確判定未補齊項目
-        const missing = [];
-        if (!g.passport || !g.passport.trim()) missing.push('護照號碼');
-        if (!g.nationalId || !g.nationalId.trim()) missing.push('身分證字號');
-        if (!g.airline || !g.airline.trim()) missing.push('去程航班');
-        if (!g.passportImage) missing.push('護照照片');
-        
-        if (missing.length > 0 && g.status !== 'cancelled') {
-          incompleteList.push({ ...g, missingText: missing.join('、') });
-        }
-
         if (g.status === 'cancelled') abnormalCount++;
 
         const st = g.staff || '未指派';
@@ -2020,18 +2020,19 @@
         const arrD = g.arrival ? g.arrival.split('T')[0] : '未排期';
         trendMap[arrD] = (trendMap[arrD] || 0) + 1;
 
-        // 純粹統計 UTM，不抓取推薦人
         const normalizedUtm = normalizeUtmSource(g.utmSource);
         utmMap[normalizedUtm] = (utmMap[normalizedUtm] || 0) + 1;
       });
 
+      // 6 大 KPI 渲染
       document.getElementById("kpiTotalGuests").innerText = filtered.length;
       document.getElementById("kpiAvgStay").innerText = filtered.length ? (totalStay / filtered.length).toFixed(1) : 0;
       document.getElementById("kpiVipCount").innerText = vipCount;
-      document.getElementById("kpiPendingDispatch").innerText = pendingDispatchList.length;
-      document.getElementById("kpiIncompleteData").innerText = incompleteList.length;
+      document.getElementById("kpiPendingDispatch").innerText = allActivePendingDispatch.length;
+      document.getElementById("kpiIncompleteData").innerText = allActiveIncompleteList.length;
       document.getElementById("kpiAbnormalCount").innerText = abnormalCount;
 
+      // 專員榜渲染
       const staffBox = document.getElementById("staffLeaderboardContainer");
       if (staffBox) {
         const staffEntries = Object.entries(staffPointsMap).sort((a, b) => b[1] - a[1]);
@@ -2051,12 +2052,13 @@
         }
       }
 
+      // 作戰待辦表格 1: 等待上傳車單
       const pendingDispatchBody = document.getElementById("actionPendingDispatchBody");
       if (pendingDispatchBody) {
-        if (pendingDispatchList.length === 0) {
+        if (allActivePendingDispatch.length === 0) {
           pendingDispatchBody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-neutral-500 text-xs">全部車單皆已核對完成！</td></tr>`;
         } else {
-          pendingDispatchBody.innerHTML = pendingDispatchList.slice(0, 10).map(g => `
+          pendingDispatchBody.innerHTML = allActivePendingDispatch.slice(0, 10).map(g => `
             <tr class="text-xs border-b border-neutral-800/60 hover:bg-neutral-800/40">
               <td class="py-2.5 px-3 font-bold text-white">${g.name || '-'}</td>
               <td class="py-2.5 px-3 text-neutral-400 font-mono">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</td>
@@ -2070,12 +2072,13 @@
         }
       }
 
+      // 作戰待辦表格 2: 未補齊資料客戶名單
       const incompleteBody = document.getElementById("actionIncompleteBody");
       if (incompleteBody) {
-        if (incompleteList.length === 0) {
-          incompleteBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-neutral-500 text-xs">客戶資料完整齊全！</td></tr>`;
+        if (allActiveIncompleteList.length === 0) {
+          incompleteBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-neutral-500 text-xs">目前無資料缺漏之行程！</td></tr>`;
         } else {
-          incompleteBody.innerHTML = incompleteList.slice(0, 10).map(g => `
+          incompleteBody.innerHTML = allActiveIncompleteList.slice(0, 15).map(g => `
             <tr class="text-xs border-b border-neutral-800/60 hover:bg-neutral-800/40">
               <td class="py-2.5 px-3 font-bold text-white">${g.name || '-'} <span class="text-[10px] text-neutral-500 font-normal">(${g.lineNickname || '無LINE'})</span></td>
               <td class="py-2.5 px-3 text-neutral-400 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
@@ -2516,7 +2519,7 @@
       </div>
     </div>
 
-    <!-- 分頁 5: 報表與營運分析（完整修正） -->
+    <!-- 分頁 5: 報表與營運分析（全量未補齊名單） -->
     <div id="analyticsView" class="hidden space-y-5">
       
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
@@ -2562,9 +2565,9 @@
           <div class="text-[11px] text-blue-400 font-medium">等待上傳派車單</div>
           <div id="kpiPendingDispatch" class="text-xl sm:text-2xl font-black text-blue-300 font-mono">0</div>
         </div>
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
-          <div class="text-[11px] text-neutral-400 font-medium">資料未補齊名單</div>
-          <div id="kpiIncompleteData" class="text-xl sm:text-2xl font-black text-neutral-300 font-mono">0</div>
+        <div class="bg-neutral-900 border border-red-950/60 bg-red-950/20 rounded-2xl p-3.5 space-y-1">
+          <div class="text-[11px] text-red-400 font-medium">資料未補齊名單</div>
+          <div id="kpiIncompleteData" class="text-xl sm:text-2xl font-black text-red-400 font-mono">0</div>
         </div>
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">異常/取消數量</div>
@@ -2638,8 +2641,8 @@
 
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
-            <h4 class="text-xs font-bold text-white">資料未補齊客戶清單</h4>
-            <span class="text-[10px] text-neutral-400">需專員聯繫催件 (護照/身分證/航班/照片)</span>
+            <h4 class="text-xs font-bold text-white">資料未補齊客戶清單 (未結案全量追蹤)</h4>
+            <span class="text-[10px] text-red-400">需專員聯繫催件</span>
           </div>
           <div class="overflow-x-auto max-h-64 overflow-y-auto">
             <table class="w-full text-left">
@@ -2693,16 +2696,21 @@
       <div class="space-y-4 text-xs">
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">任務標題 *</label>
-          <input id="taskTitleInput" placeholder="前往君悅酒店確認林小美客人是否續訂" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="taskTitleInput" placeholder="前往君悅酒店確認是否續訂" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">任務負責人全名 * <span class="text-[10px] text-neutral-500">(須與系統員工名冊全名一致)</span></label>
-          <input id="taskAssigneeInput" placeholder="李庭瑜" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="taskAssigneeInput" placeholder="負責人全名" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
-          <input id="taskDueDateInput" type="datetime-local" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
-        </div>
+  <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
+  <input 
+    id="taskDueDateInput" 
+    type="datetime-local" 
+    onclick="this.showPicker && this.showPicker()"
+    class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition [color-scheme:dark] cursor-pointer" 
+  />
+</div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">詳細說明 / 注意事項</label>
           <textarea id="taskDescInput" rows="3" placeholder="請和他合照一張" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
