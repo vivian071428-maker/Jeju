@@ -37,6 +37,11 @@
     let housekeepingFilter = 'all'; 
     let taskFilter = 'active'; 
     let unmaskedIds = new Set();
+    let currentEditGuestId = null;
+    let currentUploadGuestId = null;
+    let mergeMasterId = null;
+    let mergeSecondaryId = null;
+    let currentExtendingGuestId = null;
 
     let analyticsRangeType = '30d'; 
     let analyticsStartDate = '';
@@ -159,7 +164,6 @@
       const navAnalyticsBtn = document.getElementById("navAnalyticsBtn");
       const adminCreateTaskBtn = document.getElementById("adminCreateTaskBtn");
 
-      // 嚴格權限隔離：非 admin 完全移除按鈕
       if (currentUser.role === 'admin') {
         navUsersBtn.style.display = "flex";
         navAnalyticsBtn.style.display = "flex";
@@ -169,7 +173,7 @@
         navAnalyticsBtn.style.display = "none";
         adminCreateTaskBtn.style.display = "none";
         if (activeTab === 'analytics' || activeTab === 'users') {
-          switchTab('roster');
+          window.switchTab('roster');
         }
       }
 
@@ -192,6 +196,114 @@
 
     checkSavedSession();
 
+    // ==========================================
+    // 介面與導航控制函式
+    // ==========================================
+    window.toggleSidebar = () => {
+      const sidebar = document.getElementById("sidebarNav");
+      const overlay = document.getElementById("sidebarOverlay");
+      if (!sidebar) return;
+      if (sidebar.classList.contains("-translate-x-full")) {
+        sidebar.classList.remove("-translate-x-full");
+        if (overlay) overlay.classList.remove("hidden");
+      } else {
+        sidebar.classList.add("-translate-x-full");
+        if (overlay) overlay.classList.add("hidden");
+      }
+    };
+
+    window.switchTab = (tab) => {
+      activeTab = tab;
+      const tabs = ['roster', 'housekeeping', 'crm', 'tasks', 'analytics', 'users'];
+      tabs.forEach(t => {
+        const v = document.getElementById(`${t}View`);
+        if (v) v.classList.toggle("hidden", t !== tab);
+      });
+
+      const rosterStats = document.getElementById("rosterStatsGrid");
+      const hkStats = document.getElementById("housekeepingStatsGrid");
+      if (rosterStats) rosterStats.classList.toggle("hidden", tab !== 'roster');
+      if (hkStats) hkStats.classList.toggle("hidden", tab !== 'housekeeping');
+
+      const titleMap = {
+        roster: '即時營運行程',
+        housekeeping: '房務與續訂警戒',
+        crm: '貴賓 CRM 客戶庫',
+        tasks: '任務派遣與回報',
+        analytics: '報表與營運分析',
+        users: '員工與帳號管理'
+      };
+      const pageTitle = document.getElementById("currentPageTitle");
+      if (pageTitle) pageTitle.innerText = titleMap[tab] || '後台管理';
+
+      // 側邊欄狀態高亮
+      ['navRosterBtn', 'navHousekeepingBtn', 'navCrmBtn', 'navTasksBtn', 'navAnalyticsBtn', 'navUsersBtn'].forEach(btnId => {
+        const btn = document.getElementById(btnId);
+        if (!btn) return;
+        const currentTarget = btnId.replace('nav', '').replace('Btn', '').toLowerCase();
+        if (currentTarget === tab) {
+          btn.className = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition";
+        } else {
+          btn.className = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition";
+        }
+      });
+
+      if (window.innerWidth < 1024) {
+        const sidebar = document.getElementById("sidebarNav");
+        const overlay = document.getElementById("sidebarOverlay");
+        if (sidebar) sidebar.classList.add("-translate-x-full");
+        if (overlay) overlay.classList.add("hidden");
+      }
+
+      renderDashboard();
+    };
+
+    window.setRosterFilter = (f) => {
+      rosterFilter = f;
+      renderDashboard();
+    };
+
+    window.setHousekeepingFilter = (f) => {
+      housekeepingFilter = f;
+      renderDashboard();
+    };
+
+    window.setTaskFilter = (f) => {
+      taskFilter = f;
+      ['taskBtnActive', 'taskBtnClosed', 'taskBtnAll'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const cur = id.replace('taskBtn', '').toLowerCase();
+        if (cur === f) {
+          el.className = "px-3 py-1 rounded-lg bg-red-600 text-white font-bold transition";
+        } else {
+          el.className = "px-3 py-1 rounded-lg text-neutral-400 hover:text-white transition";
+        }
+      });
+      renderTasksView();
+    };
+
+    window.toggleMask = (id) => {
+      if (unmaskedIds.has(id)) unmaskedIds.delete(id);
+      else unmaskedIds.add(id);
+      renderDashboard();
+    };
+
+    // 搜尋與下拉聯動監聽
+    document.getElementById("searchInput")?.addEventListener("input", () => renderDashboard());
+    document.getElementById("unifiedFilterSelect")?.addEventListener("change", (e) => {
+      const isRef = e.target.value === 'referrer';
+      document.getElementById("referrerInputContainer")?.classList.toggle("hidden", !isRef);
+      renderDashboard();
+    });
+    document.getElementById("filterReferrerInput")?.addEventListener("input", () => renderDashboard());
+    document.getElementById("crmSearchInput")?.addEventListener("input", () => renderDashboard());
+    document.getElementById("crmFilterType")?.addEventListener("change", () => renderDashboard());
+    document.getElementById("crmLogicOp")?.addEventListener("change", () => renderDashboard());
+    document.getElementById("crmMetricFilter")?.addEventListener("change", () => renderDashboard());
+    document.getElementById("crmSortBy")?.addEventListener("change", () => renderDashboard());
+
+    // 密碼變更模組
     window.openChangePasswordModal = () => {
       document.getElementById("changePassOld").value = "";
       document.getElementById("changePassNew").value = "";
@@ -242,13 +354,14 @@
           password: newPass
         }));
         alert("密碼已成功變更！本機裝置已同步更新。");
-        closeChangePasswordModal();
+        window.closeChangePasswordModal();
       } catch (err) {
         errorEl.textContent = "變更失敗: " + err.message;
         errorEl.classList.remove("hidden");
       }
     };
 
+    // 資料庫即時監聽
     function loadDatabaseListener() {
       const guestsRef = ref(db, "guests");
       onValue(guestsRef, (snapshot) => {
@@ -276,6 +389,7 @@
       });
     }
 
+    // 員工管理模組
     window.openAddUserModal = () => {
       document.getElementById("newUserName").value = "";
       document.getElementById("newUserEmail").value = "";
@@ -327,7 +441,7 @@
           createdAt: Date.now()
         });
         alert(`員工帳號【${name}】建立成功！\n帳號: ${username}\n密碼: ${password}`);
-        closeUserModal();
+        window.closeUserModal();
       } catch (err) {
         errorEl.textContent = "建立失敗: " + err.message;
         errorEl.classList.remove("hidden");
@@ -346,6 +460,7 @@
 
     function renderUsersList() {
       const container = document.getElementById("usersContainer");
+      if (!container) return;
       const list = Object.entries(allUsers).map(([id, data]) => ({ id, ...data }));
 
       if (list.length === 0) {
@@ -413,14 +528,6 @@
         if (prefix.startsWith(code)) return `${clean} (${name})`;
       }
       return clean;
-    }
-
-    function formatNationalId(val) {
-      let clean = (val || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (!clean) return '';
-      let first = clean.charAt(0).replace(/[^A-Z]/g, '');
-      let rest = clean.substring(1).replace(/[^0-9]/g, '').slice(0, 9);
-      return first + rest;
     }
 
     function compressImageForStorage(file) {
@@ -504,21 +611,15 @@
 
       const p1 = normalizeStr(g1.passport);
       const p2 = normalizeStr(g2.passport);
-      if (p1 && p2 && p1 === p2) {
-        return { level: 'high', reason: `護照號碼完全相同 (${g1.passport})` };
-      }
+      if (p1 && p2 && p1 === p2) return { level: 'high', reason: `護照號碼完全相同 (${g1.passport})` };
 
       const id1 = normalizeStr(g1.nationalId);
       const id2 = normalizeStr(g2.nationalId);
-      if (id1 && id2 && id1 === id2) {
-        return { level: 'high', reason: `身分證字號完全相同 (${g1.nationalId})` };
-      }
+      if (id1 && id2 && id1 === id2) return { level: 'high', reason: `身分證字號完全相同 (${g1.nationalId})` };
 
       const ph1 = normalizeStr(g1.phone || g1.tel);
       const ph2 = normalizeStr(g2.phone || g2.tel);
-      if (ph1 && ph2 && ph1 === ph2) {
-        return { level: 'high', reason: `聯絡電話完全相同` };
-      }
+      if (ph1 && ph2 && ph1 === ph2) return { level: 'high', reason: `聯絡電話完全相同` };
 
       const en1 = normalizeStr(g1.englishName);
       const en2 = normalizeStr(g2.englishName);
@@ -975,6 +1076,7 @@
 
     function renderHousekeepingList(guestList, nowTs, profileMap) {
       const container = document.getElementById("housekeepingCards");
+      if (!container) return;
       
       let activeStayGuests = guestList.filter(g => {
         const arrTime = g.arrival ? new Date(g.arrival).getTime() : 0;
@@ -1090,6 +1192,7 @@
 
     function renderCrmList(profileMap) {
       const container = document.getElementById("crmContainer");
+      if (!container) return;
       const searchVal = document.getElementById("crmSearchInput").value.toLowerCase().trim();
       const filterType = document.getElementById("crmFilterType").value;
       const logicOp = document.getElementById("crmLogicOp").value;
@@ -1152,9 +1255,7 @@
           const tsB = b.allVisits[0]?.createdAt || (b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0);
           return tsA - tsB;
         }
-        const tsA = a.allVisits[0]?.createdAt || (a.allVisits[0]?.arrival ? new Date(a.allVisits[0].arrival).getTime() : 0);
-        const tsB = b.allVisits[0]?.createdAt || (b.allVisits[0]?.arrival ? new Date(b.allVisits[0].arrival).getTime() : 0);
-        return tsB - tsA;
+        return 0;
       });
 
       document.getElementById("crmTotalCount").innerText = list.length;
@@ -1238,7 +1339,401 @@
     }
 
     // ==========================================
-    // 12. 任務派遣模組輔助函式
+    // 編輯 Drawer 抽屜模組
+    // ==========================================
+    window.openEditDrawer = (id) => {
+      currentEditGuestId = id;
+      const g = allGuests[id];
+      if (!g) return;
+
+      document.getElementById("editMemberId").value = g.memberId || "";
+      document.getElementById("editReferrer").value = g.referrer || "";
+      document.getElementById("editName").value = g.name || "";
+      document.getElementById("editEnglishName").value = g.englishName || "";
+      document.getElementById("editPassport").value = g.passport || "";
+      document.getElementById("editNationalId").value = g.nationalId || "";
+      document.getElementById("editBirthday").value = g.birthday || "";
+      document.getElementById("editGender").value = g.gender || "M";
+      document.getElementById("editLineNickname").value = g.lineNickname || "";
+      document.getElementById("editAirline").value = g.airline || "";
+      document.getElementById("editArrival").value = g.arrival || "";
+      document.getElementById("editReturnAirline").value = g.returnAirline || "";
+      document.getElementById("editDeparture").value = g.departure || "";
+      document.getElementById("editDepartureUncertain").checked = !!g.isDepartureUncertain;
+      document.getElementById("editStayDays").value = g.stayDays || 5;
+      document.getElementById("editPoints").value = g.points || 0;
+      document.getElementById("editStaff").value = g.staff || "";
+      document.getElementById("editStatus").value = g.status || "pending";
+      document.getElementById("editStatusOtherNote").value = g.statusOtherNote || "";
+      document.getElementById("editNote").value = g.note || "";
+
+      document.getElementById("statusOtherContainer").classList.toggle("hidden", g.status !== 'other');
+
+      const passKey = (g.passport || '').trim().toUpperCase();
+      const idKey = (g.nationalId || '').trim().toUpperCase();
+      const nameKey = (g.name || '').trim();
+      const pKey = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+      const guestList = Object.entries(allGuests).map(([gid, data]) => ({ id: gid, ...data })).filter(item => item.status !== 'merged');
+      const profileMap = buildClientProfileMap(guestList, Date.now());
+      const prof = profileMap[pKey] || { totalPoints: 0, clientTypeLabel: '新客', historyVisits: [] };
+
+      document.getElementById("drawerClientTag").innerText = prof.clientTypeLabel;
+      document.getElementById("drawerVisitCount").innerText = prof.historyVisits.length;
+      document.getElementById("drawerTotalPoints").innerText = prof.totalPoints;
+
+      // 護照原圖按鈕
+      const photoBtn = document.getElementById("drawerPassportPhotoBtn");
+      const uploadBtn = document.getElementById("drawerUploadPassportPhotoBtn");
+      if (g.passportImage) {
+        photoBtn.classList.remove("hidden");
+        uploadBtn.classList.add("hidden");
+      } else {
+        photoBtn.classList.add("hidden");
+        uploadBtn.classList.remove("hidden");
+      }
+
+      // 歷程清單渲染
+      const historyList = document.getElementById("historyListContainer");
+      historyList.innerHTML = prof.allVisits.map(v => `
+        <div class="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl text-xs space-y-1">
+          <div class="flex justify-between text-neutral-300 font-bold">
+            <span>${v.arrival ? v.arrival.split('T')[0] : '未定'} ~ ${v.departure ? v.departure.split('T')[0] : '未定'}</span>
+            <span class="text-amber-400 font-mono">${v.points || 0} 點</span>
+          </div>
+          <div class="text-[11px] text-neutral-500">航班: ${v.airline || '-'} | 專員: ${v.staff || '-'} | 狀態: ${v.status || '未結案'}</div>
+        </div>
+      `).join("");
+
+      // 稽核日誌
+      const auditBox = document.getElementById("drawerAuditLogContainer");
+      if (g.auditLogs && Array.isArray(g.auditLogs)) {
+        auditBox.innerHTML = g.auditLogs.map(l => `<div class="text-[10px] text-neutral-400">${new Date(l.time).toLocaleString()}: ${l.msg}</div>`).join("");
+      } else {
+        auditBox.innerHTML = `<div class="text-[10px] text-neutral-600">暫無變更稽核紀錄</div>`;
+      }
+
+      document.getElementById("editDrawerModal").classList.remove("hidden");
+    };
+
+    window.closeEditDrawer = () => {
+      document.getElementById("editDrawerModal").classList.add("hidden");
+      currentEditGuestId = null;
+    };
+
+    window.toggleHistorySection = () => {
+      const el = document.getElementById("historyDrawerSection");
+      el.classList.toggle("hidden");
+      document.getElementById("toggleHistoryBtn").innerText = el.classList.contains("hidden") ? "展開客戶所有行程明細" : "收合客戶行程明細";
+    };
+
+    window.onDrawerPointsInput = () => {};
+
+    document.getElementById("editStatus")?.addEventListener("change", (e) => {
+      document.getElementById("statusOtherContainer").classList.toggle("hidden", e.target.value !== 'other');
+    });
+
+    window.saveGuestDetails = async () => {
+      if (!currentEditGuestId) return;
+      const g = allGuests[currentEditGuestId] || {};
+
+      const name = document.getElementById("editName").value.trim();
+      const englishName = document.getElementById("editEnglishName").value.trim().toUpperCase();
+      const passport = document.getElementById("editPassport").value.trim().toUpperCase();
+      const nationalId = formatNationalId(document.getElementById("editNationalId").value);
+      const birthday = document.getElementById("editBirthday").value;
+      const gender = document.getElementById("editGender").value;
+      const lineNickname = document.getElementById("editLineNickname").value.trim();
+      const memberId = document.getElementById("editMemberId").value.trim().toUpperCase();
+      const referrer = document.getElementById("editReferrer").value.trim();
+      const airline = document.getElementById("editAirline").value.trim().toUpperCase();
+      const arrival = document.getElementById("editArrival").value;
+      const returnAirline = document.getElementById("editReturnAirline").value.trim().toUpperCase();
+      const departure = document.getElementById("editDeparture").value;
+      const isDepartureUncertain = document.getElementById("editDepartureUncertain").checked;
+      const stayDays = parseInt(document.getElementById("editStayDays").value, 10) || 5;
+      const points = parseInt(document.getElementById("editPoints").value, 10) || 0;
+      const staff = document.getElementById("editStaff").value.trim();
+      const status = document.getElementById("editStatus").value;
+      const statusOtherNote = document.getElementById("editStatusOtherNote").value.trim();
+      const note = document.getElementById("editNote").value.trim();
+
+      const auditLogs = g.auditLogs || [];
+      auditLogs.unshift({
+        time: Date.now(),
+        msg: `由【${currentUser.name}】修改資料更新狀態為 [${status}]`
+      });
+
+      try {
+        await update(ref(db, `guests/${currentEditGuestId}`), {
+          name, englishName, passport, nationalId, birthday, gender,
+          lineNickname, memberId, referrer, airline, arrival,
+          returnAirline, departure, isDepartureUncertain, stayDays,
+          points, staff, status, statusOtherNote, note, auditLogs
+        });
+        window.closeEditDrawer();
+      } catch(err) {
+        alert("儲存失敗: " + err.message);
+      }
+    };
+
+    // 刪除操作
+    window.deleteGuest = async (id) => {
+      if (confirm("確定要刪除此筆預約紀錄嗎？刪除後無法還原。")) {
+        await remove(ref(db, `guests/${id}`));
+      }
+    };
+
+    window.deleteEntireClient = async (pKey) => {
+      if (confirm("警告：此操作將刪除該客戶之所有歷史與未來來訪紀錄，確定執行？")) {
+        const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+        for (const g of guestList) {
+          const passKey = (g.passport || '').trim().toUpperCase();
+          const idKey = (g.nationalId || '').trim().toUpperCase();
+          const nameKey = (g.name || '').trim();
+          const key = passKey || idKey || (nameKey ? `NAME_${nameKey}` : g.id);
+          if (key === pKey) {
+            await remove(ref(db, `guests/${g.id}`));
+          }
+        }
+      }
+    };
+
+    // 續住與結案
+    window.openExtendModal = (id, curDays) => {
+      currentExtendingGuestId = id;
+      document.getElementById("extendNightsSelect").value = "4";
+      document.getElementById("extendModal").classList.remove("hidden");
+    };
+
+    window.closeExtendModal = () => {
+      document.getElementById("extendModal").classList.add("hidden");
+      currentExtendingGuestId = null;
+    };
+
+    window.confirmExtend = async () => {
+      if (!currentExtendingGuestId) return;
+      const g = allGuests[currentExtendingGuestId];
+      if (!g) return;
+
+      const addNights = parseInt(document.getElementById("extendNightsSelect").value, 10) || 1;
+      const currentDays = parseInt(g.stayDays, 10) || 5;
+      const newStayDays = currentDays + addNights;
+
+      let newDep = g.departure;
+      if (g.arrival) {
+        const arrDate = new Date(g.arrival);
+        const depDate = new Date(arrDate.getTime() + (newStayDays * 24 * 60 * 60 * 1000));
+        newDep = depDate.toISOString().slice(0, 16);
+      }
+
+      await update(ref(db, `guests/${currentExtendingGuestId}`), {
+        stayDays: newStayDays,
+        departure: newDep,
+        isDepartureUncertain: false
+      });
+
+      alert(`續住辦理完成！總住宿晚數已更新為 ${newStayDays} 晚。`);
+      window.closeExtendModal();
+    };
+
+    window.closeStayCase = async (id) => {
+      if (confirm("確認為此貴賓辦理【結案退房】並歸檔嗎？")) {
+        await update(ref(db, `guests/${id}`), {
+          status: 'completed',
+          housekeepingStatus: 'closed'
+        });
+      }
+    };
+
+    window.copyLineCareText = (name, staff, dep, nights) => {
+      const msg = `您好 ${name} 貴賓～我是濟州接待專員 ${staff}。提醒您目前住宿剩餘約 ${nights} 晚（預計離開：${dep.split('T')[0]}）。如需為您安排延住續訂、預約專車接送或安排餐廳，隨時為您服務！`;
+      navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
+    };
+
+    // ==========================================
+    // 護照與車單相片處理 & OCR 模組
+    // ==========================================
+    const adminPassportUploadInput = document.getElementById("adminPassportUploadInput");
+    const dispatchUploadInput = document.getElementById("dispatchUploadInput");
+
+    window.viewPassportPhoto = (id) => {
+      const g = allGuests[id];
+      if (g?.passportImage) {
+        document.getElementById("passportModalImg").src = g.passportImage;
+        document.getElementById("passportPhotoModal").classList.remove("hidden");
+      }
+    };
+
+    window.closePassportPhotoModal = () => {
+      document.getElementById("passportPhotoModal").classList.add("hidden");
+    };
+
+    window.openDrawerPassportPhoto = () => {
+      if (currentEditGuestId) window.viewPassportPhoto(currentEditGuestId);
+    };
+
+    window.triggerUploadPassport = (id) => {
+      currentUploadGuestId = id;
+      adminPassportUploadInput.click();
+    };
+
+    window.triggerDrawerUploadPassport = () => {
+      if (currentEditGuestId) window.triggerUploadPassport(currentEditGuestId);
+    };
+
+    adminPassportUploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file || !currentUploadGuestId) return;
+      const base64 = await compressImageForStorage(file);
+      await update(ref(db, `guests/${currentUploadGuestId}`), { passportImage: base64 });
+      alert("護照照片上傳成功！");
+      e.target.value = "";
+    });
+
+    window.viewDispatchPhoto = (id) => {
+      const g = allGuests[id];
+      if (g?.dispatchImage) {
+        document.getElementById("dispatchModalImg").src = g.dispatchImage;
+        document.getElementById("dispatchPhotoModal").classList.remove("hidden");
+      }
+    };
+
+    window.closeDispatchPhotoModal = () => {
+      document.getElementById("dispatchPhotoModal").classList.add("hidden");
+    };
+
+    window.triggerDispatchVerify = (id) => {
+      currentUploadGuestId = id;
+      dispatchUploadInput.click();
+    };
+
+    dispatchUploadInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file || !currentUploadGuestId) return;
+
+      const overlay = document.getElementById("dispatchLoadingOverlay");
+      overlay.classList.remove("hidden");
+
+      try {
+        const processedImgUrl = await preprocessDispatchImage(file);
+        const fullImgBase64 = await compressImageForStorage(file);
+
+        const worker = await getOcrWorker();
+        const { data: { text } } = await worker.recognize(processedImgUrl);
+
+        const cleanOcr = normalizeStr(text);
+        const targetGuest = allGuests[currentUploadGuestId] || {};
+        const regName = normalizeStr(targetGuest.englishName);
+
+        const isMatch = regName && cleanOcr.includes(regName);
+
+        await update(ref(db, `guests/${currentUploadGuestId}`), {
+          dispatchImage: fullImgBase64,
+          dispatchVerified: true,
+          dispatchOcrResult: text
+        });
+
+        document.getElementById("dispatchResultTitle").innerText = isMatch ? "✅ 車單姓名比對一致！" : "⚠️ 請人工確認車單姓名";
+        document.getElementById("dispatchResultMsg").innerText = isMatch ? "系統已自動辨識核對成功。" : "OCR 辨識結果與登記英文姓名存在差異，請專員複核。";
+        document.getElementById("dispatchOcrRaw").innerText = text.slice(0, 40) || "無文字";
+        document.getElementById("dispatchRegisteredName").innerText = targetGuest.englishName || "未登記";
+        document.getElementById("dispatchResultModal").classList.remove("hidden");
+
+      } catch (err) {
+        alert("派車單辨識失敗: " + err.message);
+      } finally {
+        overlay.classList.add("hidden");
+        e.target.value = "";
+      }
+    });
+
+    window.closeDispatchModal = () => {
+      document.getElementById("dispatchResultModal").classList.add("hidden");
+    };
+
+    // ==========================================
+    // 重複資料合併模組
+    // ==========================================
+    window.openMergeModal = (id1, id2, reason) => {
+      mergeMasterId = id1;
+      mergeSecondaryId = id2;
+      const g1 = allGuests[id1] || {};
+      const g2 = allGuests[id2] || {};
+
+      document.getElementById("mergeMatchReason").innerText = reason;
+      document.getElementById("mergeMasterInfo").innerHTML = `
+        <div>姓名: <b class="text-white">${g1.name}</b> (${g1.englishName || '-'})</div>
+        <div>護照: ${g1.passport || '-'} | 身分證: ${g1.nationalId || '-'}</div>
+        <div>抵達: ${g1.arrival || '-'} | 專員: ${g1.staff || '-'}</div>
+      `;
+      document.getElementById("mergeSecondaryInfo").innerHTML = `
+        <div>姓名: <b class="text-amber-300">${g2.name}</b> (${g2.englishName || '-'})</div>
+        <div>護照: ${g2.passport || '-'} | 身分證: ${g2.nationalId || '-'}</div>
+        <div>抵達: ${g2.arrival || '-'} | 專員: ${g2.staff || '-'}</div>
+      `;
+
+      document.getElementById("mergeFormName").value = g1.name || g2.name || "";
+      document.getElementById("mergeFormEnglishName").value = g1.englishName || g2.englishName || "";
+      document.getElementById("mergeFormPassport").value = g1.passport || g2.passport || "";
+      document.getElementById("mergeFormNationalId").value = g1.nationalId || g2.nationalId || "";
+      document.getElementById("mergeFormBirthday").value = g1.birthday || g2.birthday || "";
+      document.getElementById("mergeFormLine").value = g1.lineNickname || g2.lineNickname || "";
+      document.getElementById("mergeFormReferrer").value = g1.referrer || g2.referrer || "";
+      document.getElementById("mergeFormNote").value = `${g1.note || ''} ${g2.note ? `[合併備註: ${g2.note}]` : ''}`.trim();
+
+      document.getElementById("mergeModal").classList.remove("hidden");
+    };
+
+    window.closeMergeModal = () => {
+      document.getElementById("mergeModal").classList.add("hidden");
+      mergeMasterId = null;
+      mergeSecondaryId = null;
+    };
+
+    window.confirmExecuteMerge = async () => {
+      if (!mergeMasterId || !mergeSecondaryId) return;
+      const g1 = allGuests[mergeMasterId];
+      const g2 = allGuests[mergeSecondaryId];
+
+      const mergedName = document.getElementById("mergeFormName").value.trim();
+      const mergedEn = document.getElementById("mergeFormEnglishName").value.trim().toUpperCase();
+      const mergedPass = document.getElementById("mergeFormPassport").value.trim().toUpperCase();
+      const mergedId = formatNationalId(document.getElementById("mergeFormNationalId").value);
+      const mergedBday = document.getElementById("mergeFormBirthday").value;
+      const mergedLine = document.getElementById("mergeFormLine").value.trim();
+      const mergedRef = document.getElementById("mergeFormReferrer").value.trim();
+      const mergedNote = document.getElementById("mergeFormNote").value.trim();
+
+      const auditLogs = g1.auditLogs || [];
+      auditLogs.unshift({
+        time: Date.now(),
+        msg: `與重複紀錄 (${g2.name || g2.id}) 完成資料合併作業`
+      });
+
+      await update(ref(db, `guests/${mergeMasterId}`), {
+        name: mergedName,
+        englishName: mergedEn,
+        passport: mergedPass,
+        nationalId: mergedId,
+        birthday: mergedBday,
+        lineNickname: mergedLine,
+        referrer: mergedRef,
+        note: mergedNote,
+        passportImage: g1.passportImage || g2.passportImage || "",
+        auditLogs: auditLogs
+      });
+
+      await update(ref(db, `guests/${mergeSecondaryId}`), {
+        status: 'merged',
+        mergedInto: mergeMasterId
+      });
+
+      alert("客戶資料合併完成！已自動歸併至主檔案。");
+      window.closeMergeModal();
+    };
+
+    // ==========================================
+    // 任務派遣模組
     // ==========================================
     window.openCreateTaskModal = () => {
       if (currentUser?.role !== 'admin') return;
@@ -1252,6 +1747,184 @@
 
     window.closeCreateTaskModal = () => {
       document.getElementById("taskModal").classList.add("hidden");
+    };
+
+    window.submitCreateTask = async () => {
+      const title = document.getElementById("taskTitleInput").value.trim();
+      const assignee = document.getElementById("taskAssigneeInput").value.trim();
+      const dueDate = document.getElementById("taskDueDateInput").value;
+      const desc = document.getElementById("taskDescInput").value.trim();
+      const errorEl = document.getElementById("taskModalError");
+
+      if (!title || !assignee || !dueDate) {
+        errorEl.textContent = "任務標題、負責人全名與截止時間為必填";
+        errorEl.classList.remove("hidden");
+        return;
+      }
+
+      await push(ref(db, "tasks"), {
+        title, assignee, dueDate, desc,
+        status: 'pending',
+        creator: currentUser.name,
+        createdAt: Date.now()
+      });
+
+      alert("派遣任務已成功發布！");
+      window.closeCreateTaskModal();
+    };
+
+    window.toggleTaskStatus = async (taskId, currentStatus) => {
+      const next = currentStatus === 'completed' ? 'pending' : 'completed';
+      await update(ref(db, `tasks/${taskId}`), { status: next });
+    };
+
+    function renderTasksView() {
+      const container = document.getElementById("tasksContainer");
+      if (!container) return;
+      let list = Object.entries(allTasks).map(([id, d]) => ({ id, ...d }));
+
+      if (taskFilter === 'active') list = list.filter(t => t.status !== 'completed');
+      if (taskFilter === 'closed') list = list.filter(t => t.status === 'completed');
+
+      if (list.length === 0) {
+        container.innerHTML = `<div class="col-span-full text-center py-8 text-neutral-500 text-xs">目前無任何派遣任務。</div>`;
+        return;
+      }
+
+      container.innerHTML = list.map(t => {
+        const isDone = t.status === 'completed';
+        return `
+          <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-2.5 shadow-md">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold ${isDone ? 'line-through text-neutral-500' : 'text-white'}">${t.title}</span>
+              <button onclick="toggleTaskStatus('${t.id}', '${t.status}')" class="px-2 py-0.5 rounded text-[10px] font-bold ${isDone ? 'bg-neutral-800 text-neutral-400' : 'bg-red-950 border border-red-800 text-red-400'}">
+                ${isDone ? '已完成' : '標記完成'}
+              </button>
+            </div>
+            <p class="text-[11px] text-neutral-400">${t.desc || '無詳細說明'}</p>
+            <div class="flex justify-between items-center text-[10px] text-neutral-500 border-t border-neutral-900 pt-2">
+              <span>負責人: <b class="text-neutral-300">${t.assignee}</b></span>
+              <span>截止: ${t.dueDate ? t.dueDate.replace('T', ' ') : '-'}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // ==========================================
+    // 報表分析與 CSV 匯出模組
+    // ==========================================
+    function initAnalyticsDates() {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      analyticsEndDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+      
+      const past = new Date();
+      past.setDate(past.getDate() - 30);
+      analyticsStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+
+      const sIn = document.getElementById("analyticsStartInput");
+      const eIn = document.getElementById("analyticsEndInput");
+      if (sIn) sIn.value = analyticsStartDate;
+      if (eIn) eIn.value = analyticsEndDate;
+    }
+
+    window.setAnalyticsRange = (type) => {
+      analyticsRangeType = type;
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      analyticsEndDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      if (type === 'today') {
+        analyticsStartDate = analyticsEndDate;
+      } else if (type === '7d') {
+        const past = new Date(); past.setDate(past.getDate() - 7);
+        analyticsStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+      } else if (type === '30d') {
+        const past = new Date(); past.setDate(past.getDate() - 30);
+        analyticsStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+      } else if (type === 'month') {
+        analyticsStartDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`;
+      } else if (type === '6m') {
+        const past = new Date(); past.setMonth(past.getMonth() - 6);
+        analyticsStartDate = `${past.getFullYear()}-${pad(past.getMonth() + 1)}-${pad(past.getDate())}`;
+      } else if (type === 'all') {
+        analyticsStartDate = '2000-01-01';
+      }
+
+      const sIn = document.getElementById("analyticsStartInput");
+      const eIn = document.getElementById("analyticsEndInput");
+      if (sIn) sIn.value = analyticsStartDate;
+      if (eIn) eIn.value = analyticsEndDate;
+
+      renderAnalyticsDashboard();
+    };
+
+    window.onCustomDateChange = () => {
+      analyticsStartDate = document.getElementById("analyticsStartInput").value;
+      analyticsEndDate = document.getElementById("analyticsEndInput").value;
+      renderAnalyticsDashboard();
+    };
+
+    function renderAnalyticsDashboard() {
+      const guestList = Object.values(allGuests).filter(g => g.status !== 'merged');
+      const filtered = guestList.filter(g => {
+        const dateStr = g.arrival ? g.arrival.split('T')[0] : '';
+        if (!dateStr) return true;
+        return dateStr >= analyticsStartDate && dateStr <= analyticsEndDate;
+      });
+
+      let totalStay = 0;
+      let pendingDispatch = 0;
+      let incomplete = 0;
+      let abnormal = 0;
+      const staffMap = {};
+
+      filtered.forEach(g => {
+        totalStay += (parseInt(g.stayDays, 10) || 5);
+        if (!g.dispatchVerified) pendingDispatch++;
+        if (!g.passport || !g.nationalId) incomplete++;
+        if (g.status === 'cancelled') abnormal++;
+
+        const s = g.staff || '未指派';
+        staffMap[s] = (staffMap[s] || 0) + (parseInt(g.points, 10) || 0);
+      });
+
+      document.getElementById("kpiTotalGuests").innerText = filtered.length;
+      document.getElementById("kpiAvgStay").innerText = filtered.length ? (totalStay / filtered.length).toFixed(1) : 0;
+      document.getElementById("kpiPendingDispatch").innerText = pendingDispatch;
+      document.getElementById("kpiIncompleteData").innerText = incomplete;
+      document.getElementById("kpiAbnormalCount").innerText = abnormal;
+
+      // 專員榜
+      const staffBox = document.getElementById("staffLeaderboardContainer");
+      if (staffBox) {
+        staffBox.innerHTML = Object.entries(staffMap).map(([name, pts]) => `
+          <div class="flex justify-between items-center text-xs bg-neutral-950 p-2.5 rounded-xl border border-neutral-800">
+            <span class="text-white font-medium">${name}</span>
+            <span class="text-amber-400 font-mono font-bold">${pts} 點</span>
+          </div>
+        `).join("");
+      }
+    }
+
+    window.exportToCSV = () => {
+      const list = Object.values(allGuests).filter(g => g.status !== 'merged');
+      if (list.length === 0) {
+        alert("目前無可匯出的資料！");
+        return;
+      }
+
+      let csv = "\uFEFF姓名,英文姓名,護照號碼,身分證,電話,航班,抵達時間,離開時間,住宿天數,積分,接待專員,狀態,備註\n";
+      list.forEach(g => {
+        csv += `"${g.name || ''}","${g.englishName || ''}","${g.passport || ''}","${g.nationalId || ''}","${g.phone || ''}","${g.airline || ''}","${g.arrival || ''}","${g.departure || ''}","${g.stayDays || 5}","${g.points || 0}","${g.staff || ''}","${g.status || ''}","${(g.note || '').replace(/"/g, '""')}"\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `濟州旅客名冊_${new Date().toISOString().slice(0,10)}.csv`;
+      link.click();
     };
   </script>
 </head>
@@ -1307,7 +1980,7 @@
   <!-- 側邊欄抽屜遮罩 -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
-  <!-- 側邊抽屜導航欄 (員工視角完全不渲染管理員專屬按鈕) -->
+  <!-- 側邊抽屜導航欄 -->
   <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
@@ -1337,19 +2010,16 @@
           <span>貴賓 CRM 客戶庫</span>
         </button>
 
-        <!-- 任務派遣分頁 -->
         <button id="navTasksBtn" onclick="switchTab('tasks')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg>
           <span>任務派遣與回報</span>
         </button>
 
-        <!-- 管理員專屬：報表與營運分析 (預設 hidden，員工端完全不顯示) -->
         <button id="navAnalyticsBtn" onclick="switchTab('analytics')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
           <span>報表與營運分析</span>
         </button>
 
-        <!-- 管理員專屬：員工帳號管理 (預設 hidden，員工端完全不顯示) -->
         <button id="navUsersBtn" onclick="switchTab('users')" class="hidden w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           <span>員工與帳號管理</span>
@@ -1559,7 +2229,7 @@
       </div>
     </div>
 
-    <!-- 分頁 5: 報表與營運分析 (僅限總管理員查看) -->
+    <!-- 分頁 5: 報表與營運分析 -->
     <div id="analyticsView" class="hidden space-y-5">
       
       <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 shadow-md">
@@ -1587,8 +2257,8 @@
         </div>
       </div>
 
-      <!-- 6 大核心 KPI 矩陣 -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
+      <!-- KPI 矩陣 -->
+      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5">
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">區間總旅客數</div>
           <div id="kpiTotalGuests" class="text-xl sm:text-2xl font-black text-white font-mono">0</div>
@@ -1596,10 +2266,6 @@
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">平均停留天數</div>
           <div class="text-xl sm:text-2xl font-black text-white font-mono"><span id="kpiAvgStay">0</span> <span class="text-xs text-neutral-500 font-normal">晚</span></div>
-        </div>
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
-          <div class="text-[11px] text-neutral-400 font-medium">VIP 長期客戶數</div>
-          <div id="kpiVipCount" class="text-xl sm:text-2xl font-black text-neutral-200 font-mono">0</div>
         </div>
         <div class="bg-neutral-900 border border-blue-950/60 bg-blue-950/20 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-blue-400 font-medium">等待上傳派車單</div>
@@ -1615,94 +2281,18 @@
         </div>
       </div>
 
-      <!-- 4 大核心圖表 -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-neutral-200">旅客到訪走勢趨勢圖</h4>
-            <span class="text-[10px] text-neutral-500">按日/按月統計</span>
-          </div>
-          <div class="h-60">
-            <canvas id="chartTrend"></canvas>
-          </div>
+      <!-- 專員排行 -->
+      <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
+        <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+          <h4 class="text-xs font-bold text-neutral-200">接待專員發放積分排行榜</h4>
+          <span class="text-[10px] text-neutral-500">業績即時榜</span>
         </div>
-
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-neutral-200">客群結構分級佔比</h4>
-            <span class="text-[10px] text-neutral-500">忠誠度結構</span>
-          </div>
-          <div class="h-60">
-            <canvas id="chartTier"></canvas>
-          </div>
-        </div>
-
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-neutral-200">導流渠道 UTM 轉換來源 (無UTM計為 direct)</h4>
-            <span class="text-[10px] text-neutral-500">進單來源排名</span>
-          </div>
-          <div class="h-60">
-            <canvas id="chartUtm"></canvas>
-          </div>
-        </div>
-
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-            <h4 class="text-xs font-bold text-neutral-200">接待專員處理量與積分排行榜</h4>
-            <span class="text-[10px] text-neutral-500">業績即時榜</span>
-          </div>
-          <div id="staffLeaderboardContainer" class="space-y-3 h-60 overflow-y-auto pr-1"></div>
-        </div>
-      </div>
-
-      <!-- 管理員作戰待辦工作區 -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
-            <h4 class="text-xs font-bold text-white">等待上傳派車單名單 (管理員專區)</h4>
-            <span class="text-[10px] text-blue-400">點擊直接上傳車單核對</span>
-          </div>
-          <div class="overflow-x-auto max-h-64 overflow-y-auto">
-            <table class="w-full text-left">
-              <thead>
-                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
-                  <th class="py-2 px-3">姓名</th>
-                  <th class="py-2 px-3">抵達時間</th>
-                  <th class="py-2 px-3">航班</th>
-                  <th class="py-2 px-3">專員</th>
-                  <th class="py-2 px-3 text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody id="actionPendingDispatchBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
-            <h4 class="text-xs font-bold text-white">資料未補齊客戶清單</h4>
-            <span class="text-[10px] text-neutral-400">需專員聯繫催件</span>
-          </div>
-          <div class="overflow-x-auto max-h-64 overflow-y-auto">
-            <table class="w-full text-left">
-              <thead>
-                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
-                  <th class="py-2 px-3">姓名 (LINE)</th>
-                  <th class="py-2 px-3">抵達日</th>
-                  <th class="py-2 px-3">缺漏項目</th>
-                  <th class="py-2 px-3 text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody id="actionIncompleteBody"></tbody>
-            </table>
-          </div>
-        </div>
+        <div id="staffLeaderboardContainer" class="space-y-2 max-h-60 overflow-y-auto"></div>
       </div>
 
     </div>
 
-    <!-- 分頁 6: 員工與帳號權限管理 (僅限總管理員查看) -->
+    <!-- 分頁 6: 員工帳號管理 -->
     <div id="usersView" class="hidden space-y-4">
       <div class="bg-neutral-900 border border-neutral-800 p-4 sm:p-5 rounded-2xl space-y-4 shadow-md">
         
@@ -1725,7 +2315,7 @@
 
   </main>
 
-  <!-- 建立派遣任務彈窗 (管理員專屬) -->
+  <!-- 建立派遣任務彈窗 -->
   <div id="taskModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -1739,7 +2329,7 @@
           <input id="taskTitleInput" placeholder="例：前往樂天飯店確認貴賓延住" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">任務負責人全名 * <span class="text-[10px] text-neutral-500">(須與系統員工名冊全名一致)</span></label>
+          <label class="block text-neutral-300 font-semibold mb-1">任務負責人全名 *</label>
           <input id="taskAssigneeInput" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
@@ -1779,7 +2369,7 @@
     </div>
   </div>
 
-  <!-- 智慧客戶資料合併工作台彈窗 -->
+  <!-- 重複客戶合併彈窗 -->
   <div id="mergeModal" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -1806,8 +2396,7 @@
 
       <div class="bg-neutral-950/70 border border-neutral-800 rounded-2xl p-4 space-y-3 text-xs">
         <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
-          <span class="font-bold text-white">合併後最終主檔資料（自動補齊缺漏資訊，您可手動調整）：</span>
-          <span id="mergePassportImgStatus" class="text-[11px]"></span>
+          <span class="font-bold text-white">合併後最終主檔資料：</span>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1848,19 +2437,19 @@
         </div>
 
         <div>
-          <label class="block text-neutral-400 mb-1">需求與備註（已自動串接雙方紀錄）</label>
+          <label class="block text-neutral-400 mb-1">需求與備註</label>
           <textarea id="mergeFormNote" rows="2" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
         </div>
       </div>
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeMergeModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
-        <button onclick="confirmExecuteMerge()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認合併並寫入稽核紀錄</button>
+        <button onclick="confirmExecuteMerge()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認合併</button>
       </div>
     </div>
   </div>
 
-  <!-- 員工修改密碼彈窗 -->
+  <!-- 密碼彈窗 -->
   <div id="changePasswordModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -1874,7 +2463,7 @@
           <input id="changePassOld" type="password" placeholder="請輸入當前密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
-          <label class="block text-neutral-300 font-semibold mb-1">新密碼 * <span class="text-[10px] text-neutral-500">(英數6碼以上)</span></label>
+          <label class="block text-neutral-300 font-semibold mb-1">新密碼 *</label>
           <input id="changePassNew" type="password" placeholder="請輸入新密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
@@ -1911,11 +2500,11 @@
         </div>
         <div class="grid grid-cols-2 gap-2.5">
           <div>
-            <label class="block text-neutral-300 font-semibold mb-1">自訂登入帳號 * <span class="text-[10px] text-neutral-500">(英數6碼+)</span></label>
+            <label class="block text-neutral-300 font-semibold mb-1">自訂登入帳號 *</label>
             <input id="newUserUsername" placeholder="例：ming01" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
           </div>
           <div>
-            <label class="block text-neutral-300 font-semibold mb-1">自訂登入密碼 * <span class="text-[10px] text-neutral-500">(英數6碼+)</span></label>
+            <label class="block text-neutral-300 font-semibold mb-1">自訂登入密碼 *</label>
             <input id="newUserPassword" placeholder="例：ming888" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
           </div>
         </div>
@@ -1963,7 +2552,7 @@
     </div>
   </div>
 
-  <!-- 護照照片最高圖層燈箱 -->
+  <!-- 護照原圖燈箱 -->
   <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -2098,7 +2687,7 @@
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
-            <label class="block text-neutral-400 mb-1">停留晚數 <span class="text-neutral-500">(雙向連動)</span></label>
+            <label class="block text-neutral-400 mb-1">停留晚數</label>
             <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs font-bold font-mono transition" />
           </div>
           <div>
@@ -2124,7 +2713,7 @@
         </div>
 
         <div id="statusOtherContainer" class="hidden">
-          <label class="block text-amber-400 font-semibold mb-1">其他狀態具體說明 <span class="text-[10px] text-neutral-500">(限 20 字以內)</span></label>
+          <label class="block text-amber-400 font-semibold mb-1">其他狀態具體說明</label>
           <input id="editStatusOtherNote" maxlength="20" placeholder="例如：等候改簽航班、客人自主退訂..." class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-300 outline-none focus:border-amber-500 text-xs transition" />
         </div>
 
@@ -2134,14 +2723,14 @@
         </div>
 
         <div class="border-t border-neutral-800 pt-2.5 space-y-1.5">
-          <label class="block text-amber-400 font-semibold text-[11px]">異動與合併紀錄 (Audit Log - 唯讀防竄改)</label>
+          <label class="block text-amber-400 font-semibold text-[11px]">異動與合併紀錄 (Audit Log)</label>
           <div id="drawerAuditLogContainer" class="bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 space-y-2 max-h-32 overflow-y-auto"></div>
         </div>
       </div>
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeEditDrawer()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium transition">取消</button>
-        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950 transition">儲存變更 (Enter)</button>
+        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950 transition">儲存變更</button>
       </div>
     </div>
   </div>
