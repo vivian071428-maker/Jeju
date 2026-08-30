@@ -332,7 +332,7 @@
               </div>
               <div>
                 ${isCurrent 
-                  ? `<span class="text-[10px] text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded">目前登入</span>`
+                  ? `<span class="text-[10px] text-neutral-500 bg-neutral-900 px-2 py-0.5 rounded">目前登入</span>` 
                   : `<button onclick="deleteUser('${u.id}', '${u.name}')" class="px-2.5 py-1 text-neutral-500 hover:text-red-400 text-xs font-semibold transition">刪除帳號</button>`}
               </div>
             </div>
@@ -458,10 +458,53 @@
       });
     }
 
+    // ==========================================
+    // 6. 重複客戶智慧偵測與比對引擎
+    // ==========================================
+    function normalizeStr(str) {
+      return (str || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+    }
+
+    // 比對兩位旅客是否重複
+    function checkDuplicateMatch(g1, g2) {
+      if (!g1 || !g2 || g1.id === g2.id) return null;
+      if (g1.status === 'merged' || g2.status === 'merged') return null;
+
+      const p1 = normalizeStr(g1.passport);
+      const p2 = normalizeStr(g2.passport);
+      if (p1 && p2 && p1 === p2) {
+        return { level: 'high', reason: `護照號碼完全相同 (${g1.passport})` };
+      }
+
+      const id1 = normalizeStr(g1.nationalId);
+      const id2 = normalizeStr(g2.nationalId);
+      if (id1 && id2 && id1 === id2) {
+        return { level: 'high', reason: `身分證字號完全相同 (${g1.nationalId})` };
+      }
+
+      const ph1 = normalizeStr(g1.phone || g1.tel);
+      const ph2 = normalizeStr(g2.phone || g2.tel);
+      if (ph1 && ph2 && ph1 === ph2) {
+        return { level: 'high', reason: `聯絡電話完全相同` };
+      }
+
+      const en1 = normalizeStr(g1.englishName);
+      const en2 = normalizeStr(g2.englishName);
+      const b1 = (g1.birthday || '').trim();
+      const b2 = (g2.birthday || '').trim();
+      if (en1 && en2 && b1 && b2 && en1 === en2 && b1 === b2) {
+        return { level: 'medium', reason: `英文姓名與生日完全一致 (${g1.englishName} | ${b1})` };
+      }
+
+      return null;
+    }
+
     function buildClientProfileMap(guestList, nowTs) {
       const profileMap = {};
 
       guestList.forEach(g => {
+        if (g.status === 'merged') return; // 已被合併的次檔不進入獨立客戶卡片
+
         const passKey = (g.passport || '').trim().toUpperCase();
         const idKey = (g.nationalId || '').trim().toUpperCase();
         const nameKey = (g.name || '').trim();
@@ -534,7 +577,7 @@
     }
 
     function getHousekeepingAlertLevel(g, nowTs) {
-      if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled') {
+      if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'cancelled' || g.status === 'merged') {
         return 'closed';
       }
 
@@ -566,8 +609,11 @@
       }
     }
 
+    // ==========================================
+    // 7. 渲染主儀表板
+    // ==========================================
     function renderDashboard() {
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
       const now = new Date();
       const nowTs = now.getTime();
       const pad = (n) => String(n).padStart(2, '0');
@@ -626,7 +672,7 @@
       document.getElementById("statHkAlert24").innerText = alert24Count;
 
       updateCardActiveStyles();
-      renderRoster(activeRosterList, nowTs, todayDateStr, profileMap);
+      renderRoster(activeRosterList, nowTs, todayDateStr, profileMap, guestList);
       renderHousekeepingList(guestList, nowTs, profileMap);
       renderCrmList(profileMap);
     }
@@ -745,7 +791,7 @@
       return filtered;
     }
 
-    function renderRoster(activeList, nowTs, todayDateStr, profileMap) {
+    function renderRoster(activeList, nowTs, todayDateStr, profileMap, fullGuestList) {
       const container = document.getElementById("rosterContainer");
       const filtered = getFilteredGuests(activeList, nowTs, todayDateStr, profileMap);
 
@@ -759,13 +805,13 @@
         const passText = isUnmasked ? (g.passport || '-') : maskString(g.passport, 4);
         const idText = isUnmasked ? (g.nationalId || '-') : maskString(g.nationalId, 3);
         const eyeIcon = isUnmasked 
-          ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
-          : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
+          ? `<svg class="w-3.5 h-3.5 text-neutral-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
+          : `<svg class="w-3.5 h-3.5 text-neutral-500 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
         let statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-300 whitespace-nowrap">待確認</span>`;
-        if (g.status === 'confirmed') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-400 border border-blue-800/60 whitespace-nowrap">已確認</span>`;
-        if (g.status === 'checked_in') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60 whitespace-nowrap">已入住</span>`;
-        if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60 whitespace-nowrap">已取消</span>`;
+        if (g.status === 'confirmed') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-850 text-neutral-200 border border-neutral-700 whitespace-nowrap">已確認</span>`;
+        if (g.status === 'checked_in') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-emerald-400 border border-neutral-700 whitespace-nowrap">已入住</span>`;
+        if (g.status === 'cancelled') statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-900 text-rose-400 border border-neutral-800 whitespace-nowrap">已取消</span>`;
 
         const passKey = (g.passport || '').trim().toUpperCase();
         const idKey = (g.nationalId || '').trim().toUpperCase();
@@ -776,39 +822,58 @@
         
         let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 text-neutral-400 text-[10px] font-medium whitespace-nowrap">新客</span>`;
         if (profile.clientType === 'long') {
-          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-red-950 border border-red-800/60 text-red-300 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
+          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-200 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
         } else if (profile.clientType === 'short') {
-          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
+          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
         }
 
         const stayDays = parseInt(g.stayDays, 10) || (g.isDepartureUncertain ? 5 : 1);
         const departureText = g.isDepartureUncertain 
-          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定${stayDays}天)</span>` 
+          ? `<span class="text-neutral-300 font-medium">尚未確定 (暫定${stayDays}天)</span>` 
           : (g.departure ? g.departure.replace('T', ' ') : '-');
 
         const stayDaysText = g.isDepartureUncertain ? `暫定 ${stayDays} 晚` : `${stayDays} 晚`;
         const formattedArrivalFlight = formatFlightWithAirline(g.airline);
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
 
+        // 檢查是否有其他重複客戶紀錄
+        let duplicateCandidate = null;
+        for (const other of fullGuestList) {
+          const matchRes = checkDuplicateMatch(g, other);
+          if (matchRes) {
+            duplicateCandidate = { guest: other, match: matchRes };
+            break;
+          }
+        }
+
+        const duplicateAlertBtn = duplicateCandidate
+          ? `<button onclick="openMergeModal('${g.id}', '${duplicateCandidate.guest.id}', '${duplicateCandidate.match.reason}')" class="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 border border-neutral-600 text-neutral-200 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
+               <span>[發現重複紀錄 (點此合併)]</span>
+             </button>`
+          : ``;
+
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
-          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-semibold border border-neutral-700 transition">護照照片</button>`
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 border border-neutral-800 rounded text-[11px] transition">補傳護照</button>`;
 
         const dispatchVerifyBadge = g.dispatchVerified
-          ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-400 text-[10px] font-bold">✓ 派車單已核驗</span>`
-          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單核對</button>`;
+          ? `<span class="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 text-[10px] font-bold">派車單已核驗</span>`
+          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 rounded-lg text-xs font-bold transition">派車單核對</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
-              <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5 flex-wrap min-w-0">
-                <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
-                  ${g.name || '未填寫'}
-                </span>
-                <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
-                ${clientTypeTag}
-                <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 修改</span>
-              </button>
+              <div class="flex items-center gap-1.5 flex-wrap min-w-0">
+                <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5">
+                  <span class="text-base font-bold text-white group-hover:text-neutral-300 transition underline underline-offset-4 decoration-neutral-700">
+                    ${g.name || '未填寫'}
+                  </span>
+                  <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
+                  ${clientTypeTag}
+                  <span class="text-[10px] text-neutral-400 font-normal whitespace-nowrap">✎ 修改</span>
+                </button>
+                ${duplicateAlertBtn}
+              </div>
               <div class="flex items-center gap-2">
                 ${dispatchVerifyBadge}
                 ${passportPhotoBtn}
@@ -818,7 +883,7 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
               <div class="space-y-1">
-                ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
+                ${g.memberId ? `<div>會員編號: <span class="text-neutral-200 font-mono font-bold">#${g.memberId}</span></div>` : ''}
                 <div class="flex items-center gap-1.5 font-mono text-neutral-300">
                   <span>護照: ${passText}</span>
                   <button onclick="toggleMask('${g.id}')" class="p-0.5 rounded hover:bg-neutral-800 transition" title="切換遮罩">
@@ -826,23 +891,23 @@
                   </button>
                 </div>
                 <div class="text-[11px] text-neutral-500 font-mono">身分證: ${idText}</div>
-                <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
-                ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
-                <div class="text-amber-400 font-mono font-medium">累積總積分: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(歷史過往: ${profile.closedHistoryPoints} + 本次: ${g.points || 0})</span></div>
+                <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
+                ${g.referrer ? `<div>推薦人: <span class="text-neutral-300 font-medium">${g.referrer}</span></div>` : ''}
+                <div class="text-neutral-300 font-mono font-medium">累積總積分: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(歷史: ${profile.closedHistoryPoints} + 本次: ${g.points || 0})</span></div>
               </div>
 
               <div class="space-y-1">
-                <div>去程航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedArrivalFlight}</span></div>
+                <div>去程航班: <span class="bg-neutral-800 text-neutral-200 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedArrivalFlight}</span></div>
                 <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
                 <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
                 <div>起飛離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
-                <div>本次發放積分: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
+                <div>本次發放積分: <span class="text-neutral-200 font-mono font-bold">${g.points || 0}</span> 點</div>
               </div>
             </div>
 
             ${g.note ? `
-              <div class="bg-neutral-950/70 border border-neutral-800 rounded-xl p-2 text-[11px] text-amber-300/90 flex items-start gap-1.5">
-                <span class="text-amber-500 font-bold whitespace-nowrap">客戶需求/備註:</span>
+              <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-2 text-[11px] text-neutral-300 flex items-start gap-1.5">
+                <span class="text-neutral-400 font-bold whitespace-nowrap">需求與備註:</span>
                 <span class="truncate">${g.note}</span>
               </div>
             ` : ''}
@@ -853,7 +918,7 @@
                 <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition whitespace-nowrap">
                   歷史紀錄 / 預約行程
                 </button>
-                <button onclick="deleteGuest('${g.id}')" class="px-2 py-1 text-neutral-500 hover:text-red-400 transition text-xs whitespace-nowrap">
+                <button onclick="deleteGuest('${g.id}')" class="px-2 py-1 text-neutral-500 hover:text-neutral-300 transition text-xs whitespace-nowrap">
                   刪除
                 </button>
               </div>
@@ -915,13 +980,13 @@
         let cardBorder = "border-neutral-800";
 
         if (level === 'alert24') {
-          badge = `<span class="bg-red-950 border border-red-800 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse whitespace-nowrap">倒數第 1 晚訂房警戒</span>`;
-          cardBorder = "border-red-800/80 bg-red-950/20";
+          badge = `<span class="bg-neutral-850 border border-neutral-600 text-neutral-100 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">倒數第 1 晚訂房警戒</span>`;
+          cardBorder = "border-neutral-600 bg-neutral-900";
         } else if (level === 'care48') {
-          badge = `<span class="bg-amber-950 border border-amber-800 text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">倒數第 2 晚關懷名單</span>`;
-          cardBorder = "border-amber-800/60 bg-amber-950/10";
+          badge = `<span class="bg-neutral-850 border border-neutral-700 text-neutral-300 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">倒數第 2 晚關懷名單</span>`;
+          cardBorder = "border-neutral-700 bg-neutral-900";
         } else if (level === 'overdue') {
-          badge = `<span class="bg-neutral-800 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">已逾期 / 今日退房</span>`;
+          badge = `<span class="bg-neutral-800 text-neutral-400 text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap">已逾期 / 今日退房</span>`;
         }
 
         const passKey = (g.passport || '').trim().toUpperCase();
@@ -931,7 +996,7 @@
 
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other' };
         const departureText = g.isDepartureUncertain 
-          ? `<span class="text-amber-400 font-medium">尚未確定 (暫定: ${new Date(depTime).toISOString().split('T')[0]})</span>` 
+          ? `<span class="text-neutral-300 font-medium">尚未確定 (暫定: ${new Date(depTime).toISOString().split('T')[0]})</span>` 
           : (g.departure ? g.departure.split('T')[0] : '-');
 
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
@@ -940,23 +1005,23 @@
           <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
             <div>
               <div class="flex items-center justify-between gap-2 mb-2">
-                <button onclick="openEditDrawer('${g.id}')" class="text-sm font-bold text-white hover:text-red-400 transition text-left underline decoration-neutral-700 flex items-center gap-1">
+                <button onclick="openEditDrawer('${g.id}')" class="text-sm font-bold text-white hover:text-neutral-300 transition text-left underline decoration-neutral-700 flex items-center gap-1">
                   <span>${g.name || '未填'}</span>
                   <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span>
-                  <span class="text-[10px] text-red-500 font-normal">✎</span>
+                  <span class="text-[10px] text-neutral-400 font-normal">✎</span>
                 </button>
                 <div class="flex-shrink-0">${badge}</div>
               </div>
               <div class="text-xs text-neutral-400 space-y-1">
-                ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
-                <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '長期客戶' : (profile.clientType === 'short' ? '短期客戶' : '新客')}</span> | 累積總積分: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
-                ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
+                ${g.memberId ? `<div>會員編號: <span class="text-neutral-200 font-mono font-bold">#${g.memberId}</span></div>` : ''}
+                <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '長期客戶' : (profile.clientType === 'short' ? '短期客戶' : '新客')}</span> | 累積總積分: <span class="text-neutral-100 font-bold">${profile.totalPoints}</span> 點</div>
+                ${g.referrer ? `<div>推薦人: <span class="text-neutral-300 font-medium">${g.referrer}</span></div>` : ''}
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
                 <div>期間: <span class="text-neutral-200 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'} ~ ${departureText}</span></div>
                 <div>回程航班: <span class="text-neutral-200 font-mono">${formattedReturnFlight}</span></div>
-                <div>住宿天數: <span class="text-red-400 font-bold font-mono">${g.isDepartureUncertain ? `暫定 ${stayDays} 晚` : `${stayDays} 晚`}</span> ${timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
+                <div>住宿天數: <span class="text-white font-bold font-mono">${g.isDepartureUncertain ? `暫定 ${stayDays} 晚` : `${stayDays} 晚`}</span> ${timeLeftHours ? `(剩餘約: ${Math.round(timeLeftHours)} 小時)` : ''}</div>
                 <div>專員: <span class="text-neutral-200">${g.staff || '未指派'}</span></div>
-                ${g.note ? `<div class="text-amber-400/90 text-[11px] pt-1 font-medium">📌 客戶需求: ${g.note}</div>` : ''}
+                ${g.note ? `<div class="text-neutral-300 text-[11px] pt-1 font-medium">客戶需求: ${g.note}</div>` : ''}
               </div>
             </div>
 
@@ -965,10 +1030,10 @@
                 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="openExtendModal('${g.id}', ${stayDays})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
+                <button onclick="openExtendModal('${g.id}', ${stayDays})" class="py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white text-xs font-bold rounded-xl transition">
                   + 續住加訂
                 </button>
-                <button onclick="closeStayCase('${g.id}')" class="py-2 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-xl transition">
+                <button onclick="closeStayCase('${g.id}')" class="py-2 bg-neutral-950 border border-neutral-800 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-xl transition">
                   結案退房
                 </button>
               </div>
@@ -1060,43 +1125,43 @@
         const passText = isUnmasked ? (g.passport || '-') : maskString(g.passport, 4);
         const idText = isUnmasked ? (g.nationalId || '-') : maskString(g.nationalId, 3);
         const eyeIcon = isUnmasked 
-          ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
-          : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
+          ? `<svg class="w-3.5 h-3.5 text-neutral-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
+          : `<svg class="w-3.5 h-3.5 text-neutral-500 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
         let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 text-neutral-400 text-xs font-medium">新客/單次</span>`;
         if (p.clientType === 'long') {
-          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800 text-red-300 text-xs font-bold">長期客戶</span>`;
+          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs font-bold">長期客戶</span>`;
         } else if (p.clientType === 'short') {
-          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-xs font-bold">短期客戶</span>`;
+          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-300 text-xs font-bold">短期客戶</span>`;
         }
 
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">📷 護照照片</button>`
-          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">📷 補傳護照</button>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-200 rounded-lg text-xs font-semibold transition">護照照片</button>`
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 border border-neutral-800 rounded text-[11px] transition">補傳護照</button>`;
 
         return `
           <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
             <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
               <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-2 flex-wrap min-w-0">
-                <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
+                <span class="text-base font-bold text-white group-hover:text-neutral-300 transition underline underline-offset-4 decoration-neutral-700">
                   ${g.name || '未填寫'}
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
-                <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 編輯</span>
+                <span class="text-[10px] text-neutral-400 font-normal whitespace-nowrap">✎ 編輯</span>
               </button>
               <div class="text-right flex items-center gap-3">
                 ${passportPhotoBtn}
                 <div>
                   <span class="text-xs text-neutral-400">累積總積分:</span>
-                  <span class="text-base font-black text-amber-400 font-mono ml-1">${p.totalPoints}</span> <span class="text-[10px] text-neutral-500">點</span>
+                  <span class="text-base font-black text-white font-mono ml-1">${p.totalPoints}</span> <span class="text-[10px] text-neutral-500">點</span>
                 </div>
               </div>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
               <div class="space-y-1">
-                ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
+                ${g.memberId ? `<div>會員編號: <span class="text-neutral-200 font-mono font-bold">#${g.memberId}</span></div>` : ''}
                 <div class="flex items-center gap-1.5 font-mono text-neutral-200">
                   <span>護照: ${passText}</span>
                   <button onclick="toggleMask('${g.id}')" class="p-0.5 rounded hover:bg-neutral-800 transition" title="切換遮罩">
@@ -1104,19 +1169,19 @@
                   </button>
                 </div>
                 <div class="font-mono text-neutral-300">身分證: ${idText}</div>
-                <div>LINE 暱稱: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
-                ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
+                <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
+                ${g.referrer ? `<div>推薦人: <span class="text-neutral-300 font-medium">${g.referrer}</span></div>` : ''}
               </div>
               <div class="space-y-1">
                 <div>歷史已結案行程: <span class="text-white font-bold font-mono">${p.historyVisits.length}</span> 次</div>
-                <div>未來/進行中預約: <span class="text-emerald-400 font-bold font-mono">${p.upcomingVisits.length}</span> 筆</div>
+                <div>未來/進行中預約: <span class="text-neutral-300 font-bold font-mono">${p.upcomingVisits.length}</span> 筆</div>
                 <div>最新預約/來訪: <span class="text-neutral-300 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'}</span></div>
               </div>
             </div>
 
             <div class="pt-2 border-t border-neutral-800/80 flex items-center justify-between">
-              <button onclick="deleteEntireClient('${p.key}')" class="text-xs text-neutral-500 hover:text-red-400 transition font-medium">
-                🗑 刪除客戶全紀錄
+              <button onclick="deleteEntireClient('${p.key}')" class="text-xs text-neutral-500 hover:text-neutral-300 transition font-medium">
+                刪除客戶全紀錄
               </button>
               <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold transition">
                 查看客戶完整歷程 / 編輯資料
@@ -1127,8 +1192,145 @@
       }).join("");
     }
 
+    // ==========================================
+    // 8. 智慧客戶合併彈窗與 Audit Log 執行
+    // ==========================================
+    let mergeTargetMasterId = null;
+    let mergeTargetSecondaryId = null;
+    let mergeCombinedPassportImg = null;
+
+    window.openMergeModal = (id1, id2, reasonText) => {
+      const g1 = allGuests[id1];
+      const g2 = allGuests[id2];
+      if (!g1 || !g2) return;
+
+      // 預設以建立時間較早的為主檔（Master）
+      const t1 = g1.createdAt || 0;
+      const t2 = g2.createdAt || 0;
+      let master = (t1 <= t2) ? g1 : g2;
+      let secondary = (t1 <= t2) ? g2 : g1;
+
+      mergeTargetMasterId = master.id;
+      mergeTargetSecondaryId = secondary.id;
+
+      document.getElementById("mergeMatchReason").innerText = reasonText || "資料高度吻合";
+      document.getElementById("mergeMasterCardTitle").innerText = `主檔案 (建立於: ${master.arrival ? master.arrival.split('T')[0] : '先前'})`;
+      document.getElementById("mergeSecondaryCardTitle").innerText = `待合併次檔案 (建立於: ${secondary.arrival ? secondary.arrival.split('T')[0] : '近期'})`;
+
+      document.getElementById("mergeMasterInfo").innerHTML = `
+        <div>姓名: <b class="text-white">${master.name || '-'}</b> (${master.englishName || '-'})</div>
+        <div>護照: ${master.passport || '-'} | 身分證: ${master.nationalId || '-'}</div>
+        <div>LINE: ${master.lineNickname || '-'} | 電話: ${master.phone || master.tel || '-'}</div>
+        <div>備註: ${master.note || '無'}</div>
+      `;
+
+      document.getElementById("mergeSecondaryInfo").innerHTML = `
+        <div>姓名: <b class="text-white">${secondary.name || '-'}</b> (${secondary.englishName || '-'})</div>
+        <div>護照: ${secondary.passport || '-'} | 身分證: ${secondary.nationalId || '-'}</div>
+        <div>LINE: ${secondary.lineNickname || '-'} | 電話: ${secondary.phone || secondary.tel || '-'}</div>
+        <div>備註: ${secondary.note || '無'}</div>
+      `;
+
+      // 智慧預填補齊
+      document.getElementById("mergeFormName").value = master.name || secondary.name || "";
+      document.getElementById("mergeFormEnglishName").value = master.englishName || secondary.englishName || "";
+      document.getElementById("mergeFormPassport").value = master.passport || secondary.passport || "";
+      document.getElementById("mergeFormNationalId").value = master.nationalId || secondary.nationalId || "";
+      document.getElementById("mergeFormBirthday").value = master.birthday || secondary.birthday || "";
+      document.getElementById("mergeFormLine").value = master.lineNickname || secondary.lineNickname || "";
+      document.getElementById("mergeFormReferrer").value = master.referrer || secondary.referrer || "";
+
+      // 備註智能合併
+      const noteMaster = master.note ? `[主檔備註: ${master.note}]` : "";
+      const noteSecondary = secondary.note ? `[合併備註: ${secondary.note}]` : "";
+      document.getElementById("mergeFormNote").value = [noteMaster, noteSecondary].filter(Boolean).join(" ");
+
+      // 護照圖片優先保留
+      mergeCombinedPassportImg = master.passportImage || secondary.passportImage || "";
+      const imgStatus = document.getElementById("mergePassportImgStatus");
+      if (mergeCombinedPassportImg) {
+        imgStatus.innerText = "已自動整合最佳護照照片";
+        imgStatus.className = "text-emerald-400 font-medium";
+      } else {
+        imgStatus.innerText = "雙方皆無護照照片";
+        imgStatus.className = "text-neutral-500 font-normal";
+      }
+
+      document.getElementById("mergeModal").classList.remove("hidden");
+    };
+
+    window.closeMergeModal = () => {
+      document.getElementById("mergeModal").classList.add("hidden");
+      mergeTargetMasterId = null;
+      mergeTargetSecondaryId = null;
+      mergeCombinedPassportImg = null;
+    };
+
+    window.confirmExecuteMerge = async () => {
+      if (!mergeTargetMasterId || !mergeTargetSecondaryId) return;
+
+      const master = allGuests[mergeTargetMasterId];
+      const secondary = allGuests[mergeTargetSecondaryId];
+      if (!master || !secondary) return;
+
+      const operatorDisplay = currentUser ? `${currentUser.name} (${currentUser.role === 'admin' ? '管理員' : '接待專員'})` : '系統人員';
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const timeStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+      // 建立不可竄改的 Audit Log
+      const newAuditLog = {
+        timestamp: Date.now(),
+        timeStr: timeStr,
+        operator: operatorDisplay,
+        operatorUsername: currentUser?.username || 'unknown',
+        action: "MERGE_CLIENT",
+        sourceId: mergeTargetSecondaryId,
+        sourceName: secondary.name || '未命名',
+        description: `由專員 ${operatorDisplay} 將重複檔案 (${secondary.name || secondary.id}) 合併至此主檔。`
+      };
+
+      const existingLogs = master.auditLogs || [];
+      const updatedAuditLogs = [...existingLogs, newAuditLog];
+
+      // 整合積分
+      const totalCombinedPoints = (parseInt(master.points || 0, 10) || 0) + (parseInt(secondary.points || 0, 10) || 0);
+
+      const finalMasterData = {
+        name: document.getElementById("mergeFormName").value.trim(),
+        englishName: document.getElementById("mergeFormEnglishName").value.trim().toUpperCase(),
+        passport: document.getElementById("mergeFormPassport").value.trim().toUpperCase(),
+        nationalId: formatNationalId(document.getElementById("mergeFormNationalId").value),
+        birthday: document.getElementById("mergeFormBirthday").value,
+        lineNickname: document.getElementById("mergeFormLine").value.trim(),
+        referrer: document.getElementById("mergeFormReferrer").value.trim(),
+        note: document.getElementById("mergeFormNote").value.trim(),
+        passportImage: mergeCombinedPassportImg || master.passportImage || "",
+        points: totalCombinedPoints,
+        auditLogs: updatedAuditLogs
+      };
+
+      try {
+        // 1. 更新主檔
+        await update(ref(db, `guests/${mergeTargetMasterId}`), finalMasterData);
+        // 2. 將次檔標記為 merged 並關聯主檔 ID
+        await update(ref(db, `guests/${mergeTargetSecondaryId}`), {
+          status: 'merged',
+          mergedIntoId: mergeTargetMasterId,
+          mergedAt: Date.now(),
+          mergedBy: operatorDisplay
+        });
+
+        alert(`客戶資料已成功合併！\n已自動寫入稽核紀錄 (Audit Log) 並整合全部積分。`);
+        closeMergeModal();
+      } catch (err) {
+        alert("合併失敗: " + err.message);
+      }
+    };
+
+    // 匯出 CSV
     window.exportToCSV = () => {
-      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data }));
+      const guestList = Object.entries(allGuests).map(([id, data]) => ({ id, ...data })).filter(g => g.status !== 'merged');
       const now = new Date();
       const pad = (n) => String(n).padStart(2, '0');
       const todayDateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
@@ -1265,13 +1467,6 @@
       dispatchUploadInput.click();
     };
 
-    function normalizeNameStr(str) {
-      return (str || '')
-        .toUpperCase()
-        .replace(/[^A-Z]/g, '')
-        .trim();
-    }
-
     dispatchUploadInput.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file || !dispatchTargetGuestId) return;
@@ -1301,8 +1496,8 @@
           }
         }
 
-        const cleanExtracted = normalizeNameStr(extractedName);
-        const cleanRegistered = normalizeNameStr(guest.englishName);
+        const cleanExtracted = normalizeStr(extractedName);
+        const cleanRegistered = normalizeStr(guest.englishName);
 
         const isExactMatch = (cleanExtracted.length > 0 && cleanRegistered.length > 0) && (cleanExtracted === cleanRegistered || cleanExtracted.includes(cleanRegistered) || cleanRegistered.includes(cleanExtracted));
 
@@ -1310,16 +1505,13 @@
         document.getElementById("dispatchRegisteredName").innerText = guest.englishName || '(系統未填寫英文名)';
 
         if (isExactMatch) {
-          document.getElementById("dispatchResultIcon").innerHTML = "✅";
           document.getElementById("dispatchResultTitle").innerText = "確認正確";
           document.getElementById("dispatchResultTitle").className = "text-lg font-black text-emerald-400";
           document.getElementById("dispatchResultMsg").innerText = "派車單英文姓名與系統登記之旅客英文姓名完全一致！";
-          
           update(ref(db, `guests/${dispatchTargetGuestId}`), { dispatchVerified: true });
         } else {
-          document.getElementById("dispatchResultIcon").innerHTML = "⚠️";
           document.getElementById("dispatchResultTitle").innerText = "異常，請人員再次檢查";
-          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-red-500 animate-pulse";
+          document.getElementById("dispatchResultTitle").className = "text-lg font-black text-rose-400";
           document.getElementById("dispatchResultMsg").innerText = "截圖辨識之英文姓名與登記姓名不符，請核對下方資訊或手動修改。";
         }
 
@@ -1344,7 +1536,7 @@
       const g = allGuests[id];
       if (!g) return;
 
-      const guestList = Object.entries(allGuests).map(([i, d]) => ({ id: i, ...d }));
+      const guestList = Object.entries(allGuests).map(([i, d]) => ({ id: i, ...d })).filter(x => x.status !== 'merged');
       const nowTs = Date.now();
       const profileMap = buildClientProfileMap(guestList, nowTs);
 
@@ -1392,39 +1584,34 @@
       document.getElementById("drawerVisitCount").innerText = profile.historyVisits.length;
       document.getElementById("drawerClientTag").innerText = profile.clientTypeLabel;
 
+      // 渲染歷史與預約行程
       const historyListContainer = document.getElementById("historyListContainer");
       let html = '';
 
       if (profile.upcomingVisits.length > 0) {
-        html += `<div class="text-[11px] font-bold text-red-400 pt-1">未來 / 進行中預約行程 (${profile.upcomingVisits.length} 筆)：</div>`;
+        html += `<div class="text-[11px] font-bold text-neutral-300 pt-1">未來 / 進行中預約行程 (${profile.upcomingVisits.length} 筆)：</div>`;
         html += profile.upcomingVisits.map((v) => `
-          <div class="bg-neutral-950 border ${v.id === id ? 'border-red-600/80 bg-red-950/20' : 'border-neutral-800'} rounded-xl p-2.5 text-xs space-y-1">
+          <div class="bg-neutral-950 border ${v.id === id ? 'border-neutral-600 bg-neutral-900/60' : 'border-neutral-800'} rounded-xl p-2.5 text-xs space-y-1">
             <div class="flex items-center justify-between text-neutral-200 font-medium">
               <span>期間：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.isDepartureUncertain ? '未定(暫定5天)' : (v.departure ? v.departure.split('T')[0] : '-')}</span>
-              <span class="text-red-400 font-bold font-mono text-[10px] uppercase">${v.status || 'pending'}</span>
+              <span class="text-neutral-400 font-bold font-mono text-[10px] uppercase">${v.status || 'pending'}</span>
             </div>
             <div class="text-neutral-400 flex items-center justify-between text-[11px]">
               <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.isDepartureUncertain ? '暫定' : ''}${v.stayDays || 1}晚</span>
-              ${v.id === id ? '<span class="text-red-400 text-[10px] font-bold">當前編輯中</span>' : `<button onclick="openEditDrawer('${v.id}')" class="text-[10px] text-neutral-400 underline hover:text-white">切換編輯</button>`}
+              ${v.id === id ? '<span class="text-neutral-300 text-[10px] font-bold">當前編輯中</span>' : `<button onclick="openEditDrawer('${v.id}')" class="text-[10px] text-neutral-400 underline hover:text-white">切換編輯</button>`}
             </div>
-            ${v.note ? `<div class="text-amber-400/80 text-[10px]">需求: ${v.note}</div>` : ''}
           </div>
         `).join("");
       }
 
       if (profile.historyVisits.length > 0) {
-        html += `<div class="text-[11px] font-bold text-emerald-400 pt-2">已結案歷史行程 (${profile.historyVisits.length} 筆)：</div>`;
+        html += `<div class="text-[11px] font-bold text-neutral-300 pt-2">已結案歷史行程 (${profile.historyVisits.length} 筆)：</div>`;
         html += profile.historyVisits.map((v, idx) => `
           <div class="bg-neutral-950 border border-neutral-800/80 rounded-xl p-2.5 text-xs space-y-1">
             <div class="flex items-center justify-between text-neutral-300 font-medium">
               <span>歷史 #${idx + 1}：${v.arrival ? v.arrival.split('T')[0] : '-'} ~ ${v.departure ? v.departure.split('T')[0] : '未定'}</span>
-              <span class="text-amber-400 font-bold font-mono">+${v.points || 0} 點</span>
+              <span class="text-neutral-200 font-bold font-mono">+${v.points || 0} 點</span>
             </div>
-            <div class="text-neutral-500 flex items-center justify-between text-[11px]">
-              <span>去: ${formatFlightWithAirline(v.airline)} | 回: ${formatFlightWithAirline(v.returnAirline)} | ${v.stayDays || 1} 晚</span>
-              <span class="text-emerald-400/90 font-medium">已結案</span>
-            </div>
-            ${v.note ? `<div class="text-amber-400/80 text-[10px]">需求: ${v.note}</div>` : ''}
           </div>
         `).join("");
       }
@@ -1432,8 +1619,22 @@
       if (!html) {
         html = `<div class="text-neutral-500 text-xs text-center py-2">尚無其他關聯預約或歷史紀錄。</div>`;
       }
-
       historyListContainer.innerHTML = html;
+
+      // 渲染不可竄改之 Audit Log
+      const auditContainer = document.getElementById("drawerAuditLogContainer");
+      const logs = g.auditLogs || [];
+      if (logs.length === 0) {
+        auditContainer.innerHTML = `<div class="text-neutral-600 text-xs py-1">此客戶尚無任何合併或異動紀錄。</div>`;
+      } else {
+        auditContainer.innerHTML = logs.map(log => `
+          <div class="border-l-2 border-neutral-700 pl-3 py-1 space-y-0.5 text-xs">
+            <div class="text-neutral-400 font-mono text-[11px]">${log.timeStr} 由 <b class="text-neutral-200">${log.operator}</b> 操作</div>
+            <div class="text-neutral-300">${log.description}</div>
+          </div>
+        `).join("");
+      }
+
       document.getElementById("historyDrawerSection").classList.add("hidden");
       document.getElementById("toggleHistoryBtn").innerText = `展開行程明細 (預約 ${profile.upcomingVisits.length} / 歷史 ${profile.historyVisits.length})`;
       document.getElementById("editDrawerModal").classList.remove("hidden");
@@ -1696,7 +1897,7 @@
       document.getElementById("housekeepingStatsGrid").classList.add("hidden");
 
       const defaultNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-medium text-neutral-400 hover:text-white hover:bg-neutral-800 flex items-center gap-3 transition";
-      const activeNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition";
+      const activeNavClass = "w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-neutral-800 border border-neutral-700 shadow-md flex items-center gap-3 transition";
 
       document.getElementById("navRosterBtn").className = defaultNavClass;
       document.getElementById("navHousekeepingBtn").className = defaultNavClass;
@@ -1766,14 +1967,14 @@
   </style>
 </head>
 
-<body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white flex overflow-x-hidden">
+<body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-neutral-800 selection:text-white flex overflow-x-hidden">
 
   <input id="adminPassportUploadInput" type="file" accept="image/*" class="hidden" />
   <input id="dispatchUploadInput" type="file" accept="image/*" class="hidden" />
 
   <!-- 派車單辨識 Loading -->
   <div id="dispatchLoadingOverlay" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 z-[80] space-y-3">
-    <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+    <div class="w-10 h-10 border-2 border-neutral-700 border-t-white rounded-full animate-spin"></div>
     <div class="text-sm font-bold text-white">正在解析派車單截圖與核對英文姓名...</div>
     <div class="text-xs text-neutral-400">系統正在比對頂部預約人資訊</div>
   </div>
@@ -1781,32 +1982,32 @@
   <!-- 登入驗證遮罩 -->
   <div id="authOverlay" class="hidden fixed inset-0 bg-neutral-950 flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full space-y-5 shadow-2xl relative overflow-hidden">
-      <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 to-rose-600"></div>
-      
       <div class="text-center space-y-1.5">
-        <div class="w-12 h-12 bg-red-950/80 border border-red-800/80 text-red-400 rounded-2xl flex items-center justify-center mx-auto text-xl font-black shadow-lg shadow-red-950">🔒</div>
-        <h2 class="text-lg font-black text-white tracking-tight pt-1">濟州系統管理後台登入</h2>
+        <div class="w-10 h-10 bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-2xl flex items-center justify-center mx-auto text-sm font-mono font-bold">
+          [LOCK]
+        </div>
+        <h2 class="text-base font-black text-white tracking-tight pt-1">濟州系統管理後台登入</h2>
         <p class="text-[11px] text-neutral-400">請輸入管理員發放之專屬登入帳號密碼</p>
       </div>
 
       <div class="space-y-3 text-xs">
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">登入帳號</label>
-          <input id="loginUsername" placeholder="請輸入英數字帳號 (預設: admin88)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-white font-mono transition" />
+          <input id="loginUsername" placeholder="請輸入英數字帳號 (預設: admin88)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-neutral-600 text-white font-mono transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">登入密碼</label>
-          <input id="loginPassword" type="password" placeholder="請輸入密碼 (預設: admin88)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-white font-mono transition" />
+          <input id="loginPassword" type="password" placeholder="請輸入密碼 (預設: admin88)" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-neutral-600 text-white font-mono transition" />
         </div>
         <div class="flex items-center gap-1.5 text-[11px] text-neutral-400 pt-1">
-          <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+          <svg class="w-3.5 h-3.5 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
           <span>登入後此裝置將自動記住，日後免重複登入</span>
         </div>
       </div>
 
-      <p id="loginError" class="hidden text-xs text-red-400 text-center font-medium bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+      <p id="loginError" class="hidden text-xs text-neutral-300 text-center font-medium bg-neutral-950 p-2 rounded-lg border border-neutral-800"></p>
       
-      <button id="loginBtn" class="w-full py-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold rounded-xl text-xs transition shadow-lg shadow-red-950">
+      <button id="loginBtn" class="w-full py-3 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 active:scale-[0.99] text-white font-bold rounded-xl text-xs transition">
         登入並記住此裝置
       </button>
     </div>
@@ -1820,9 +2021,9 @@
     <div class="space-y-6">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
         <div class="flex items-center gap-2.5">
-          <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
+          <span class="w-2 h-2 rounded-full bg-neutral-300"></span>
           <div>
-            <div class="text-xs font-black tracking-widest text-white uppercase">JEJU VIP ADMIN</div>
+            <div class="text-xs font-black tracking-widest text-white uppercase font-mono">JEJU VIP ADMIN</div>
             <div class="text-[10px] text-neutral-400">濟州島行程與房務管理</div>
           </div>
         </div>
@@ -1830,7 +2031,7 @@
       </div>
 
       <nav class="space-y-1.5">
-        <button id="navRosterBtn" onclick="switchTab('roster')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-red-600/90 shadow-lg shadow-red-950/60 flex items-center gap-3 transition">
+        <button id="navRosterBtn" onclick="switchTab('roster')" class="w-full text-left px-4 py-3 rounded-xl text-xs font-bold text-white bg-neutral-800 border border-neutral-700 shadow-md flex items-center gap-3 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
           <span>即時營運行程</span>
         </button>
@@ -1858,10 +2059,10 @@
       </div>
       <div class="grid grid-cols-2 gap-2 pt-1">
         <button onclick="openChangePasswordModal()" class="py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-neutral-300 hover:text-white text-[11px] font-medium rounded-xl transition flex items-center justify-center gap-1">
-          🔑 改密碼
+          修改密碼
         </button>
-        <button onclick="logoutAccount()" class="py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-red-900/60 text-neutral-400 hover:text-red-400 text-[11px] font-semibold rounded-xl transition flex items-center justify-center gap-1">
-          🚪 登出
+        <button onclick="logoutAccount()" class="py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-neutral-400 hover:text-white text-[11px] font-semibold rounded-xl transition flex items-center justify-center gap-1">
+          登出
         </button>
       </div>
     </div>
@@ -1897,15 +2098,15 @@
       </div>
       <div id="cardTodayArr" onclick="setRosterFilter('todayArr')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">今日抵達</div>
-        <div id="statTodayArr" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
+        <div id="statTodayArr" class="text-xl sm:text-2xl font-black text-neutral-200 mt-1 font-mono">0</div>
       </div>
       <div id="cardInIsland" onclick="setRosterFilter('inIsland')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">在島中</div>
-        <div id="statInIsland" class="text-xl sm:text-2xl font-black text-blue-400 mt-1 font-mono">0</div>
+        <div id="statInIsland" class="text-xl sm:text-2xl font-black text-neutral-200 mt-1 font-mono">0</div>
       </div>
       <div id="cardTodayDep" onclick="setRosterFilter('todayDep')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">今日離開</div>
-        <div id="statTodayDep" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
+        <div id="statTodayDep" class="text-xl sm:text-2xl font-black text-neutral-200 mt-1 font-mono">0</div>
       </div>
     </div>
 
@@ -1917,15 +2118,15 @@
       </div>
       <div id="cardHkInIsland" onclick="setHousekeepingFilter('inIsland')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">在島住宿中</div>
-        <div id="statHkInIsland" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1 font-mono">0</div>
+        <div id="statHkInIsland" class="text-xl sm:text-2xl font-black text-neutral-200 mt-1 font-mono">0</div>
       </div>
-      <div id="cardHkCare48" onclick="setHousekeepingFilter('care48')" class="cursor-pointer bg-neutral-900 border border-amber-900/40 bg-amber-950/10 rounded-2xl p-3.5 transition hover:border-amber-800">
-        <div class="text-[11px] text-amber-400 font-medium">倒數第 2 晚關懷名單</div>
-        <div id="statHkCare48" class="text-xl sm:text-2xl font-black text-amber-400 mt-1 font-mono">0</div>
+      <div id="cardHkCare48" onclick="setHousekeepingFilter('care48')" class="cursor-pointer bg-neutral-900 border border-neutral-700 rounded-2xl p-3.5 transition hover:border-neutral-600">
+        <div class="text-[11px] text-neutral-300 font-medium">倒數第 2 晚關懷名單</div>
+        <div id="statHkCare48" class="text-xl sm:text-2xl font-black text-neutral-200 mt-1 font-mono">0</div>
       </div>
-      <div id="cardHkAlert24" onclick="setHousekeepingFilter('alert24')" class="cursor-pointer bg-neutral-900 border border-red-900/50 bg-red-950/20 rounded-2xl p-3.5 transition hover:border-red-800">
-        <div class="text-[11px] text-red-400 font-medium">倒數第 1 晚訂房警戒</div>
-        <div id="statHkAlert24" class="text-xl sm:text-2xl font-black text-red-500 mt-1 font-mono">0</div>
+      <div id="cardHkAlert24" onclick="setHousekeepingFilter('alert24')" class="cursor-pointer bg-neutral-900 border border-neutral-600 rounded-2xl p-3.5 transition hover:border-neutral-500">
+        <div class="text-[11px] text-white font-medium">倒數第 1 晚訂房警戒</div>
+        <div id="statHkAlert24" class="text-xl sm:text-2xl font-black text-white mt-1 font-mono">0</div>
       </div>
     </div>
 
@@ -1933,10 +2134,10 @@
     <div id="rosterView" class="space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-2.5 shadow-md">
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
-          <input id="searchInput" placeholder="搜尋會員編號、姓名、護照、身分證、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="searchInput" placeholder="搜尋會員編號、姓名、護照、身分證、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-neutral-600 transition" />
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-            <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
+            <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-neutral-600 transition font-medium">
               <option value="all">當前全部營運行程</option>
               <option value="24h_arrival">24小時內即將抵達</option>
               <option value="long">長期客戶</option>
@@ -1947,7 +2148,7 @@
             </select>
 
             <div id="referrerInputContainer" class="hidden">
-              <input id="filterReferrerInput" placeholder="輸入推薦人姓名..." class="px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+              <input id="filterReferrerInput" placeholder="輸入推薦人姓名..." class="px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-neutral-500 transition" />
             </div>
           </div>
         </div>
@@ -1972,15 +2173,15 @@
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between border-b border-neutral-800 pb-3">
           <div class="flex items-center gap-2">
             <h3 class="text-xs font-bold text-white">所有貴賓客戶名冊</h3>
-            <span class="text-[11px] text-neutral-400">(共篩選出 <b id="crmTotalCount" class="text-amber-400 font-mono">0</b> 位貴賓)</span>
+            <span class="text-[11px] text-neutral-400">(共篩選出 <b id="crmTotalCount" class="text-white font-mono">0</b> 位貴賓)</span>
           </div>
-          <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-neutral-600 transition" />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-center text-xs">
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">客群分類</label>
-            <select id="crmFilterType" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
+            <select id="crmFilterType" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 transition font-medium">
               <option value="all">全部客群分級</option>
               <option value="long">長期客戶</option>
               <option value="short">短期客戶</option>
@@ -1990,7 +2191,7 @@
 
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">條件邏輯 (AND / OR)</label>
-            <select id="crmLogicOp" class="w-full px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-red-400 font-bold outline-none focus:border-red-500 transition">
+            <select id="crmLogicOp" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-white font-bold outline-none focus:border-neutral-500 transition">
               <option value="AND">且 (AND - 同時符合)</option>
               <option value="OR">或 (OR - 命中任一)</option>
             </select>
@@ -1998,19 +2199,19 @@
 
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">經營培養維度快篩</label>
-            <select id="crmMetricFilter" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 transition font-medium">
+            <select id="crmMetricFilter" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 transition font-medium">
               <option value="all">不限經營維度</option>
-              <option value="high_points">💎 高價值大戶 (總積分 ≥ 100)</option>
-              <option value="frequent">🔥 高頻常客 (來訪 ≥ 2 次)</option>
-              <option value="referred">🤝 轉介紹客戶 (有推薦人)</option>
-              <option value="sleeping">💤 沉睡客戶 (逾 30 天未訪)</option>
-              <option value="upcoming">✈️ 近期活躍中 (有未來預約)</option>
+              <option value="high_points">高價值大戶 (總積分 ≥ 100)</option>
+              <option value="frequent">高頻常客 (來訪 ≥ 2 次)</option>
+              <option value="referred">轉介紹客戶 (有推薦人)</option>
+              <option value="sleeping">沉睡客戶 (逾 30 天未訪)</option>
+              <option value="upcoming">近期活躍中 (有未來預約)</option>
             </select>
           </div>
 
           <div>
             <label class="block text-[11px] text-neutral-400 font-medium mb-1">數據排序方式</label>
-            <select id="crmSortBy" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-amber-400 font-medium outline-none focus:border-red-500 transition">
+            <select id="crmSortBy" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-200 font-medium outline-none focus:border-neutral-600 transition">
               <option value="date_desc">最新登記/來訪 (新至舊)</option>
               <option value="points_desc">累積總積分 (高至低)</option>
               <option value="points_asc">累積總積分 (低至高)</option>
@@ -2026,23 +2227,22 @@
       <div id="crmContainer" class="space-y-3"></div>
     </div>
 
-    <!-- 分頁 4: 員工與帳號權限管理（卡片化佈局） -->
+    <!-- 分頁 4: 員工與帳號權限管理 -->
     <div id="usersView" class="hidden space-y-4">
       <div class="bg-neutral-900 border border-neutral-800 p-4 sm:p-5 rounded-2xl space-y-4 shadow-md">
         
         <div class="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between border-b border-neutral-800 pb-3.5">
           <div>
             <h3 class="text-sm font-bold text-white flex items-center gap-2">
-              <span>👥 團隊員工帳號名冊</span>
+              <span>團隊員工帳號名冊</span>
             </h3>
             <p class="text-[11px] text-neutral-400 mt-0.5">管理員可新增員工 Google 帳號與自訂登入帳密，授權員工登入管理後台。</p>
           </div>
-          <button onclick="openAddUserModal()" class="w-full sm:w-auto px-4 py-2 bg-red-600 hover:bg-red-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md shadow-red-950">
+          <button onclick="openAddUserModal()" class="w-full sm:w-auto px-4 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 active:scale-95 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md">
             <span>＋ 新增員工帳號</span>
           </button>
         </div>
 
-        <!-- 響應式卡片列表容器 -->
         <div id="usersContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
 
       </div>
@@ -2050,36 +2250,117 @@
 
   </main>
 
-  <!-- 員工自己修改個人密碼彈窗 -->
+  <!-- 智慧客戶資料合併工作台彈窗 -->
+  <div id="mergeModal" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50">
+    <div class="bg-neutral-900 border border-neutral-800 rounded-3xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <span>智慧重複客戶合併工作台</span>
+          </h3>
+          <p class="text-xs text-neutral-400 mt-0.5">系統偵測依據: <span id="mergeMatchReason" class="text-neutral-200 font-medium"></span></p>
+        </div>
+        <button onclick="closeMergeModal()" class="text-neutral-400 hover:text-white font-bold p-1">✕</button>
+      </div>
+
+      <!-- 雙向比對卡片 -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-3.5 space-y-1.5">
+          <div id="mergeMasterCardTitle" class="font-bold text-neutral-200 border-b border-neutral-800 pb-1">主檔案</div>
+          <div id="mergeMasterInfo" class="text-neutral-400 space-y-1"></div>
+        </div>
+
+        <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-3.5 space-y-1.5">
+          <div id="mergeSecondaryCardTitle" class="font-bold text-neutral-300 border-b border-neutral-800 pb-1">待合併次檔案</div>
+          <div id="mergeSecondaryInfo" class="text-neutral-400 space-y-1"></div>
+        </div>
+      </div>
+
+      <!-- 整合確認表單（專員可微調確認） -->
+      <div class="bg-neutral-950/70 border border-neutral-800 rounded-2xl p-4 space-y-3 text-xs">
+        <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
+          <span class="font-bold text-white">合併後最終主檔資料（自動補齊缺漏資訊，您可手動調整）：</span>
+          <span id="mergePassportImgStatus" class="text-[11px]"></span>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-neutral-400 mb-1">中文姓名</label>
+            <input id="mergeFormName" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-neutral-500 text-xs" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">護照英文姓名</label>
+            <input id="mergeFormEnglishName" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-neutral-500 text-xs" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-neutral-400 mb-1">護照號碼</label>
+            <input id="mergeFormPassport" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-neutral-500 text-xs" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">身分證字號</label>
+            <input id="mergeFormNationalId" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-neutral-500 text-xs" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label class="block text-neutral-400 mb-1">出生年月日</label>
+            <input id="mergeFormBirthday" type="date" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-neutral-500 text-xs" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
+            <input id="mergeFormLine" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-neutral-500 text-xs" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">推薦人</label>
+            <input id="mergeFormReferrer" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-neutral-500 text-xs" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-neutral-400 mb-1">需求與備註（已自動串接雙方紀錄）</label>
+          <textarea id="mergeFormNote" rows="2" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-neutral-500 text-xs leading-relaxed"></textarea>
+        </div>
+      </div>
+
+      <div class="flex gap-2 pt-2 border-t border-neutral-800">
+        <button onclick="closeMergeModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
+        <button onclick="confirmExecuteMerge()" class="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-white font-bold rounded-xl text-xs shadow-md">確認合併並寫入稽核紀錄</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 員工修改密碼彈窗 -->
   <div id="changePasswordModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <h3 class="text-sm font-bold text-white flex items-center gap-1.5">
-          <span>🔑 修改個人登入密碼</span>
-        </h3>
+        <h3 class="text-sm font-bold text-white">修改個人登入密碼</h3>
         <button onclick="closeChangePasswordModal()" class="text-neutral-400 hover:text-white font-bold p-1">✕</button>
       </div>
 
       <div class="space-y-3 text-xs">
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">目前密碼 *</label>
-          <input id="changePassOld" type="password" placeholder="請輸入當前密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          <input id="changePassOld" type="password" placeholder="請輸入當前密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-neutral-600 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">新密碼 * <span class="text-[10px] text-neutral-500">(英數6碼以上)</span></label>
-          <input id="changePassNew" type="password" placeholder="請輸入新密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          <input id="changePassNew" type="password" placeholder="請輸入新密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-neutral-600 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">確認新密碼 *</label>
-          <input id="changePassConfirm" type="password" placeholder="請再次輸入新密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          <input id="changePassConfirm" type="password" placeholder="請再次輸入新密碼" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-neutral-600 text-xs transition" />
         </div>
       </div>
 
-      <p id="changePassError" class="hidden text-xs text-red-400 bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+      <p id="changePassError" class="hidden text-xs text-neutral-300 bg-neutral-950 p-2 rounded-lg border border-neutral-800"></p>
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeChangePasswordModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
-        <button onclick="saveNewPersonalPassword()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認變更</button>
+        <button onclick="saveNewPersonalPassword()" class="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-white font-bold rounded-xl text-xs shadow-md">確認變更</button>
       </div>
     </div>
   </div>
@@ -2095,36 +2376,36 @@
       <div class="space-y-3 text-xs">
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">員工真實姓名 *</label>
-          <input id="newUserName" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="newUserName" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">員工 Google 帳號 (Email) *</label>
-          <input id="newUserEmail" placeholder="例：ming.jeju@gmail.com" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          <input id="newUserEmail" placeholder="例：ming.jeju@gmail.com" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-neutral-600 text-xs transition" />
         </div>
         <div class="grid grid-cols-2 gap-2.5">
           <div>
             <label class="block text-neutral-300 font-semibold mb-1">自訂登入帳號 * <span class="text-[10px] text-neutral-500">(英數6碼+)</span></label>
-            <input id="newUserUsername" placeholder="例：ming01" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+            <input id="newUserUsername" placeholder="例：ming01" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-neutral-600 text-xs transition" />
           </div>
           <div>
             <label class="block text-neutral-300 font-semibold mb-1">自訂登入密碼 * <span class="text-[10px] text-neutral-500">(英數6碼+)</span></label>
-            <input id="newUserPassword" placeholder="例：ming888" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+            <input id="newUserPassword" placeholder="例：ming888" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-neutral-600 text-xs transition" />
           </div>
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">指派身分權限 *</label>
-          <select id="newUserRole" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
+          <select id="newUserRole" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs transition">
             <option value="staff">接待專員 / 銷售 (日常作業)</option>
             <option value="admin">總管理者 (全權限)</option>
           </select>
         </div>
       </div>
 
-      <p id="userModalError" class="hidden text-xs text-red-400 bg-red-950/40 p-2 rounded-lg border border-red-900/60"></p>
+      <p id="userModalError" class="hidden text-xs text-neutral-300 bg-neutral-950 p-2 rounded-lg border border-neutral-800"></p>
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeUserModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
-        <button onclick="saveNewUser()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">確認建立</button>
+        <button onclick="saveNewUser()" class="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-white font-bold rounded-xl text-xs shadow-md">確認建立</button>
       </div>
     </div>
   </div>
@@ -2132,7 +2413,7 @@
   <!-- 派車單核對結果彈窗 -->
   <div id="dispatchResultModal" onclick="if(event.target === this) closeDispatchModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[75]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative text-center">
-      <div id="dispatchResultIcon" class="text-4xl mx-auto"></div>
+      <div id="dispatchResultIcon" class="text-sm font-bold text-neutral-400 font-mono">[DISPATCH CHECK]</div>
       <div>
         <h3 id="dispatchResultTitle" class="text-lg font-black text-white"></h3>
         <p id="dispatchResultMsg" class="text-xs text-neutral-400 mt-1 leading-relaxed"></p>
@@ -2141,11 +2422,11 @@
       <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 space-y-2 text-left text-xs">
         <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
           <span class="text-neutral-500">派車截圖辨識姓名:</span>
-          <span id="dispatchOcrRaw" class="text-blue-400 font-mono font-bold text-sm"></span>
+          <span id="dispatchOcrRaw" class="text-white font-mono font-bold text-sm"></span>
         </div>
         <div class="flex items-center justify-between pt-1">
           <span class="text-neutral-500">系統登記護照英文:</span>
-          <span id="dispatchRegisteredName" class="text-white font-mono font-bold text-sm"></span>
+          <span id="dispatchRegisteredName" class="text-neutral-300 font-mono font-bold text-sm"></span>
         </div>
       </div>
 
@@ -2155,13 +2436,11 @@
     </div>
   </div>
 
-  <!-- 護照照片燈箱 -->
+  <!-- 護照照片最高圖層燈箱 -->
   <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
-        <h3 id="passportModalTitle" class="text-sm font-bold text-white flex items-center gap-1.5">
-          <span>📷 貴賓護照原圖</span>
-        </h3>
+        <h3 id="passportModalTitle" class="text-sm font-bold text-white">貴賓護照原圖</h3>
         <button onclick="closePassportPhotoModal()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
       </div>
       <div class="flex items-center justify-center bg-neutral-950 rounded-xl p-2 max-h-[75vh] overflow-auto">
@@ -2175,21 +2454,19 @@
     </div>
   </div>
 
-  <!-- 編輯 Drawer 彈窗 -->
+  <!-- 編輯 Drawer 彈窗（含不可竄改之 Audit Log 檢視） -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
         <div>
-          <h3 class="text-base font-bold text-white flex items-center gap-1.5">
-            <span>編輯旅客資料與歷程</span>
-          </h3>
+          <h3 class="text-base font-bold text-white">編輯旅客資料與歷程</h3>
           <div class="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-2">
-            <span>分級標籤: <b id="drawerClientTag" class="text-red-400">-</b></span>
+            <span>分級標籤: <b id="drawerClientTag" class="text-neutral-200">-</b></span>
             <span>|</span>
             <span>已結案來訪: <b id="drawerVisitCount" class="text-white">0</b> 次</span>
             <span>|</span>
-            <span>累積總積分: <b id="drawerTotalPoints" class="text-amber-400 font-mono">0</b> 點</span>
+            <span>累積總積分: <b id="drawerTotalPoints" class="text-neutral-100 font-mono">0</b> 點</span>
           </div>
         </div>
         <button onclick="closeEditDrawer()" class="text-neutral-400 hover:text-white text-lg font-bold p-1">✕</button>
@@ -2199,11 +2476,11 @@
         <button id="toggleHistoryBtn" onclick="toggleHistorySection()" class="flex-1 py-2 bg-neutral-950 hover:bg-neutral-850 border border-neutral-800 text-neutral-300 rounded-xl text-xs font-medium transition flex items-center justify-center gap-1.5">
           展開客戶所有行程明細
         </button>
-        <button id="drawerPassportPhotoBtn" onclick="openDrawerPassportPhoto()" class="hidden px-3 py-2 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">
-          📷 查看護照原圖
+        <button id="drawerPassportPhotoBtn" onclick="openDrawerPassportPhoto()" class="hidden px-3 py-2 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-white rounded-xl text-xs font-bold transition">
+          查看護照原圖
         </button>
-        <button id="drawerUploadPassportPhotoBtn" onclick="triggerDrawerUploadPassport()" class="hidden px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded-xl text-xs font-bold transition flex items-center gap-1">
-          📷 補傳護照照片
+        <button id="drawerUploadPassportPhotoBtn" onclick="triggerDrawerUploadPassport()" class="hidden px-3 py-2 bg-neutral-900 hover:bg-neutral-800 text-neutral-400 border border-neutral-800 rounded-xl text-xs font-bold transition">
+          補傳護照照片
         </button>
       </div>
 
@@ -2213,46 +2490,46 @@
 
       <div class="space-y-3 text-xs">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div class="bg-neutral-950 border border-red-950 p-2.5 rounded-xl space-y-1">
-            <label class="block text-red-400 font-bold">會員編號</label>
-            <input id="editMemberId" placeholder="例如：VIP-8801" class="w-full px-2.5 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white font-mono uppercase font-bold outline-none focus:border-red-500 text-xs" />
+          <div class="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl space-y-1">
+            <label class="block text-neutral-300 font-bold">會員編號</label>
+            <input id="editMemberId" placeholder="例如：VIP-8801" class="w-full px-2.5 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white font-mono uppercase font-bold outline-none focus:border-neutral-500 text-xs" />
           </div>
           <div class="bg-neutral-950 border border-neutral-800 p-2.5 rounded-xl space-y-1">
             <label class="block text-neutral-300 font-medium">推薦人姓名</label>
-            <input id="editReferrer" placeholder="推薦人姓名" class="w-full px-2.5 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editReferrer" placeholder="推薦人姓名" class="w-full px-2.5 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white outline-none focus:border-neutral-500 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">中文真實姓名</label>
-            <input id="editName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">護照英文姓名</label>
-            <input id="editEnglishName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs" />
+            <input id="editEnglishName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-neutral-600 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">護照號碼</label>
-            <input id="editPassport" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs" />
+            <input id="editPassport" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-neutral-600 text-xs" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">身分證字號</label>
-            <input id="editNationalId" maxlength="10" placeholder="例如：A123456789" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs" />
+            <input id="editNationalId" maxlength="10" placeholder="例如：A123456789" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-neutral-600 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">出生年月日</label>
-            <input id="editBirthday" type="date" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editBirthday" type="date" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">性別</label>
-            <select id="editGender" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs">
+            <select id="editGender" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs">
               <option value="M">男 (Male)</option>
               <option value="F">女 (Female)</option>
             </select>
@@ -2261,53 +2538,53 @@
 
         <div>
           <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
-          <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+          <input id="editLineNickname" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs" />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">去程航班代碼</label>
-            <input id="editAirline" placeholder="例：KE123" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
+            <input id="editAirline" placeholder="例：KE123" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-neutral-600 text-xs" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">預計抵達濟州時間 (降落)</label>
-            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">回程航班代碼</label>
-            <input id="editReturnAirline" placeholder="例：KE124" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
+            <input id="editReturnAirline" placeholder="例：KE124" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white uppercase outline-none focus:border-neutral-600 text-xs" />
           </div>
           <div>
             <div class="flex items-center justify-between mb-1">
               <label class="text-neutral-400">離開濟州時間 (起飛)</label>
-              <label class="flex items-center gap-1 cursor-pointer select-none text-[11px] text-red-400 font-medium">
-                <input id="editDepartureUncertain" type="checkbox" class="w-3.5 h-3.5 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
+              <label class="flex items-center gap-1 cursor-pointer select-none text-[11px] text-neutral-300 font-medium">
+                <input id="editDepartureUncertain" type="checkbox" class="w-3.5 h-3.5 rounded bg-neutral-950 border-neutral-800 text-neutral-600 focus:ring-0 cursor-pointer accent-neutral-600" />
                 <span>尚未確定 (暫定5天)</span>
               </label>
             </div>
-            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">停留晚數 <span class="text-neutral-500">(雙向連動)</span></label>
-            <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs font-bold font-mono" />
+            <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs font-bold font-mono" />
           </div>
           <div>
-            <label class="block text-amber-400 font-semibold mb-1">本次發放積分</label>
-            <input id="editPoints" type="text" inputmode="numeric" pattern="[0-9]*" oninput="this.value = this.value.replace(/[^0-9]/g, ''); onDrawerPointsInput();" placeholder="0" class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-400 font-bold outline-none focus:border-amber-500 font-mono text-xs" />
+            <label class="block text-neutral-300 font-semibold mb-1">本次發放積分</label>
+            <input id="editPoints" type="text" inputmode="numeric" pattern="[0-9]*" oninput="this.value = this.value.replace(/[^0-9]/g, ''); onDrawerPointsInput();" placeholder="0" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-700 rounded-xl text-white font-bold outline-none focus:border-neutral-500 font-mono text-xs" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">接待專員</label>
-            <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
+            <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">處理狀態</label>
-            <select id="editStatus" class="w-full px-2 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs">
+            <select id="editStatus" class="w-full px-2 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 text-xs">
               <option value="pending">待確認</option>
               <option value="confirmed">已確認</option>
               <option value="checked_in">已入住</option>
@@ -2318,14 +2595,20 @@
         </div>
 
         <div>
-          <label class="block text-amber-400 font-semibold mb-1">客戶需求 / 行程特殊備註</label>
-          <textarea id="editNote" rows="3" placeholder="例如：加嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-amber-500 placeholder:text-neutral-600 leading-relaxed text-xs"></textarea>
+          <label class="block text-neutral-300 font-semibold mb-1">客戶需求 / 行程特殊備註</label>
+          <textarea id="editNote" rows="3" placeholder="例如：加嬰兒床、同行朋友姓名、特殊飲食等..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-neutral-600 placeholder:text-neutral-600 leading-relaxed text-xs"></textarea>
+        </div>
+
+        <!-- 唯讀稽核操作紀錄 (Audit Log) -->
+        <div class="border-t border-neutral-800 pt-2.5 space-y-1.5">
+          <label class="block text-neutral-400 font-semibold text-[11px]">異動與合併紀錄 (Audit Log - 唯讀防竄改)</label>
+          <div id="drawerAuditLogContainer" class="bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 space-y-2 max-h-32 overflow-y-auto"></div>
         </div>
       </div>
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeEditDrawer()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium">取消</button>
-        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">儲存變更 (Enter)</button>
+        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-white font-bold rounded-xl text-xs shadow-md">儲存變更 (Enter)</button>
       </div>
     </div>
   </div>
@@ -2340,7 +2623,7 @@
       <p class="text-xs text-neutral-400">請選擇本次要延長的住宿晚數：</p>
       <div>
         <label class="block text-xs font-semibold text-neutral-300 mb-1.5">加訂住宿晚數</label>
-        <select id="extendNightsSelect" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-red-500 transition">
+        <select id="extendNightsSelect" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-700 rounded-xl text-xs text-white outline-none focus:border-neutral-500 transition">
           <option value="1">續訂 +1 晚</option>
           <option value="2">續訂 +2 晚</option>
           <option value="3">續訂 +3 晚</option>
@@ -2350,7 +2633,7 @@
       </div>
       <div class="flex gap-2 pt-3 border-t border-neutral-800">
         <button onclick="closeExtendModal()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium transition">取消</button>
-        <button onclick="confirmExtend()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950 transition">確認延長</button>
+        <button onclick="confirmExtend()" class="flex-1 py-2.5 bg-neutral-700 hover:bg-neutral-600 text-white font-bold rounded-xl text-xs shadow-md transition">確認延長</button>
       </div>
     </div>
   </div>
