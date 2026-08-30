@@ -1540,11 +1540,10 @@
         });
       }
     };
-
-    window.copyLineCareText = (name, staff, dep, nights) => {
-      const msg = `您好 ${name} ，我是濟州接待專員 ${staff}。提醒您預計退房時間為${dep.split('T')[0]}）。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時於告知我們喔！;
-      navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
-    };
+window.copyLineCareText = (name, staff, dep, nights) => {
+  const msg = `您好 ${name} ，我是濟州接待專員 ${staff}。提醒您預計退房時間為${dep.split('T')[0]}。請問行程是否順利？若需要協助加訂續住、預約送機或調整行程，請隨時告知我們喔！`;
+  navigator.clipboard.writeText(msg).then(() => alert("已複製 LINE 關懷話術至剪貼簿！"));
+};
 
     // 護照與車單
     const adminPassportUploadInput = document.getElementById("adminPassportUploadInput");
