@@ -33,13 +33,12 @@
 
     // 發送 LINE 自動推播共用函式
     function triggerLineNotify(payload) {
-      fetch(GAS_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload)
-      }).catch(err => console.error("LINE Notify Error:", err));
-    }
+  fetch(GAS_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  }).catch(err => console.error("LINE Notify Error:", err));
+}
 
     let allGuests = {};
     let allUsers = {};
@@ -1965,11 +1964,12 @@
       // 觸發情境 3：發布臨時派遣任務推播至 LINE 群組
       const fullContent = desc ? `${title} (${desc})` : title;
       triggerLineNotify({
-        action: "extra_task",
-        staffName: assignee,
-        taskContent: fullContent,
-        deadline: dueDate.replace('T', ' ')
-      });
+  action: "extra_task",
+  staffName: assignee,
+  taskContent: title,
+  deadline: dueDate.replace('T', ' '),
+  desc: desc || "無"
+});
 
       alert("派遣任務已成功發布並推播至 LINE 群組！");
       window.closeCreateTaskModal();
