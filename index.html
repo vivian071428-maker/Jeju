@@ -57,7 +57,7 @@
     const imagePreviewContainer = document.getElementById("imagePreviewContainer");
     const imageThumb = document.getElementById("imageThumb");
 
-    let compressedPassportImageBase64 = ""; // 保證儲存 Base64
+    let compressedPassportImageBase64 = "";
 
     // 1. 初始化 MRZ Worker
     let worker = null;
@@ -73,7 +73,7 @@
     }
     initWorker();
 
-    // 強效輕量壓縮（寬度最大 800px、品質 0.55，體積僅 30~50KB）
+    // 強效輕量壓縮（寬度最大 800px、品質 0.55）
     function compressImageForStorage(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -234,12 +234,10 @@
       `;
 
       try {
-        // 1. 強制優先完成照片壓縮與即時預覽
         compressedPassportImageBase64 = await compressImageForStorage(file);
         imageThumb.src = compressedPassportImageBase64;
         imagePreviewContainer.classList.remove("hidden");
 
-        // 2. 執行 OCR
         const processedImg = await preprocessPassportMRZ(file);
         const w = await initWorker();
         const { data: { text } } = await w.recognize(processedImg);
@@ -383,24 +381,24 @@
           isDepartureUncertain: isUncertain,
           stayDays: stayDaysCount,
           note: noteInput.value.trim(),
-          passportImage: compressedPassportImageBase64 || "", // 確保寫入極小圖檔
+          passportImage: compressedPassportImageBase64 || "",
           points: 0,
           staff: "",
+          hotel: "濟州君悅",
+          roomNo: "",
           roomExtendedCount: 0,
           status: "pending",
           housekeepingStatus: "normal",
           createdAt: Date.now()
         });
 
-        // GAS 轉發 Webhook 網址
+        // 呼叫 GAS 轉發通知至 LINE 員工群組
         const GAS_URL = "https://script.google.com/macros/s/AKfycbzSY3vAlbSsiXjPpzb3noeQ5F9s7ilE1r7QKC87a5MN5UYtRzqaCwxxobHRPrKM6nKQ/exec";
 
-        // 送出表單資料並觸發 LINE 群組 @All 推播
         fetch(GAS_URL, {
           method: "POST",
-          mode: "no-cors",
           headers: {
-            "Content-Type": "application/json"
+            "Content-Type": "text/plain;charset=utf-8"
           },
           body: JSON.stringify({
             name: nameInput.value.trim(),
@@ -409,7 +407,7 @@
             stayDays: stayDaysCount,
             note: noteInput.value.trim() || "無"
           })
-        });
+        }).catch(err => console.error("GAS Notify Error:", err));
 
         formContainer.classList.add("hidden");
         successContainer.classList.remove("hidden");
