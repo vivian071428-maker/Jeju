@@ -35,6 +35,7 @@
     function triggerLineNotify(payload) {
       fetch(GAS_URL, {
         method: "POST",
+        mode: "no-cors",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         body: JSON.stringify(payload)
       }).catch(err => console.error("LINE Notify Error:", err));
@@ -67,16 +68,12 @@
     async function getOcrWorker() {
       if (!ocrWorker) {
         ocrWorker = await Tesseract.createWorker('eng');
-        await workerReady(ocrWorker);
+        await ocrWorker.setParameters({
+          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /-:,',
+          tessedit_pageseg_mode: '6'
+        });
       }
       return ocrWorker;
-    }
-
-    async function workerReady(w) {
-      await w.setParameters({
-        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /-:,',
-        tessedit_pageseg_mode: '6'
-      });
     }
 
     const authOverlay = document.getElementById("authOverlay");
@@ -1542,7 +1539,6 @@
     window.saveGuestDetails = async () => {
       if (!currentEditGuestId) return;
       const g = allGuests[currentEditGuestId] || {};
-      const prevStaff = (g.staff || '').trim();
 
       const name = document.getElementById("editName").value.trim();
       const englishName = document.getElementById("editEnglishName").value.trim().toUpperCase();
@@ -1596,12 +1592,12 @@
           points, staff, status, isBlacklisted, blacklistReason, note, auditLogs
         });
 
-        // 觸發情境 2：指派或變更接待專員時，自動發送 LINE 群組藍字 Tag 推播
-        if (staff && staff !== prevStaff) {
+        // 只要接待專員有填寫，立即觸發 LINE 指派推播
+        if (staff) {
           triggerLineNotify({
             action: "assign_staff",
             staffName: staff,
-            name: name,
+            name: name || "貴賓",
             clientType: "貴賓",
             arrival: arrival,
             stayDays: stayDays,
@@ -1965,7 +1961,7 @@
         createdAt: Date.now()
       });
 
-      // 觸發情境 3：發布臨時派遣任務時，即時推播包含藍字 @Tag 的 LINE 訊息
+      // 觸發情境 3：發布臨時派遣任務推播至 LINE 群組
       const fullContent = desc ? `${title} (${desc})` : title;
       triggerLineNotify({
         action: "extra_task",
