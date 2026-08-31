@@ -28,6 +28,18 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    // GAS Webhook 轉發通知端點
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbzSY3vAlbSsiXjPpzb3noeQ5F9s7ilE1r7QKC87a5MN5UYtRzqaCwxxobHRPrKM6nKQ/exec";
+
+    // 發送 LINE 自動推播共用函式
+    function triggerLineNotify(payload) {
+      fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      }).catch(err => console.error("LINE Notify Error:", err));
+    }
+
     let allGuests = {};
     let allUsers = {};
     let allTasks = {};
@@ -55,12 +67,16 @@
     async function getOcrWorker() {
       if (!ocrWorker) {
         ocrWorker = await Tesseract.createWorker('eng');
-        await ocrWorker.setParameters({
-          tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /-:,',
-          tessedit_pageseg_mode: '6'
-        });
+        await workerReady(ocrWorker);
       }
       return ocrWorker;
+    }
+
+    async function workerReady(w) {
+      await w.setParameters({
+        tessedit_char_whitelist: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ /-:,',
+        tessedit_pageseg_mode: '6'
+      });
     }
 
     const authOverlay = document.getElementById("authOverlay");
@@ -666,7 +682,6 @@
         const stayDays = g.isDepartureUncertain ? 5 : (parseInt(g.stayDays, 10) || 5);
         const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (stayDays * 24 * 60 * 60 * 1000) : 0);
         
-        // 離島超過 12 小時自動轉為已結案歸檔
         const isAutoCompleted = (depTime > 0 && nowTs > depTime + (12 * 60 * 60 * 1000) && g.status !== 'cancelled');
         const isAutoArchived = (g.status === 'completed' || g.status === 'checked_out' || g.housekeepingStatus === 'closed' || isAutoCompleted);
 
@@ -731,7 +746,6 @@
         }
       }
 
-      // 離島逾 12 小時自動關閉歸檔
       if (nowTs > depTime + (12 * 60 * 60 * 1000)) return 'closed';
 
       if (g.housekeepingStatus === 'closed' || g.status === 'completed' || g.status === 'checked_out' || g.status === 'cancelled' || g.status === 'merged') {
@@ -754,7 +768,6 @@
       }
     }
 
-    // 8 階生命週期狀態 Badge
     function getStatusBadgeHtml(status) {
       const statusConfig = {
         'pending': { label: '待確認', cls: 'bg-neutral-800 text-neutral-300 border border-neutral-700' },
@@ -792,7 +805,6 @@
         const stayDays = g.isDepartureUncertain ? 5 : (parseInt(g.stayDays, 10) || 5);
         const depTime = g.departure ? new Date(g.departure).getTime() : (g.arrival ? new Date(g.arrival).getTime() + (stayDays * 24 * 60 * 60 * 1000) : 0);
         
-        // 離島超過 12 小時自動移出營運名單
         if (depTime > 0 && nowTs > depTime + (12 * 60 * 60 * 1000)) return false;
         return true;
       });
@@ -982,7 +994,6 @@
           ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
           : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
-        // 判斷房號與狀態整合顯示
         let computedStatus = g.status || 'pending';
         if (g.roomNo && g.roomNo.trim() && (computedStatus === 'pending' || computedStatus === 'contacted' || computedStatus === 'booking_room')) {
           computedStatus = 'booked_room';
@@ -1044,7 +1055,6 @@
         return `
           <div class="bg-[#121212] border border-neutral-800/90 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl hover:border-neutral-700 transition">
             
-            <!-- 上下兩層結構 -->
             <div class="space-y-2.5 border-b border-neutral-800/80 pb-3">
               <div class="flex items-center justify-between gap-2">
                 <div class="flex items-center gap-2 flex-wrap min-w-0">
@@ -1070,7 +1080,6 @@
               </div>
             </div>
 
-            <!-- 資訊與房號 -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-neutral-400">
               <div class="space-y-1.5">
                 ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
@@ -1425,7 +1434,6 @@
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editStaff").value = g.staff || "";
       
-      // 8 階狀態映射 (如果已有房號且狀態偏初期，自動顯示為已訂房)
       let st = g.status || "pending";
       if (st === 'pending_contact') st = 'pending';
       if (st === 'confirmed') st = 'confirmed_pickup';
@@ -1436,7 +1444,6 @@
       }
       document.getElementById("editStatus").value = st;
 
-      // 黑名單
       const isBlack = !!g.isBlacklisted;
       document.getElementById("editIsBlacklisted").checked = isBlack;
       document.getElementById("blacklistReasonContainer").classList.toggle("hidden", !isBlack);
@@ -1500,7 +1507,6 @@
 
     window.onDrawerPointsInput = () => {};
 
-    // 房號與狀態雙向自動連動：有輸入切已訂房，清空強行回退至待訂房
     document.getElementById("editRoomNo")?.addEventListener("input", (e) => {
       const val = e.target.value.trim();
       const statusEl = document.getElementById("editStatus");
@@ -1513,7 +1519,6 @@
       }
     });
 
-    // 勾選未確定離開時間 -> 強制預設 5 晚並自動計算離開時間
     document.getElementById("editDepartureUncertain")?.addEventListener("change", (e) => {
       const isUncertain = e.target.checked;
       const stayDaysInput = document.getElementById("editStayDays");
@@ -1537,6 +1542,7 @@
     window.saveGuestDetails = async () => {
       if (!currentEditGuestId) return;
       const g = allGuests[currentEditGuestId] || {};
+      const prevStaff = (g.staff || '').trim();
 
       const name = document.getElementById("editName").value.trim();
       const englishName = document.getElementById("editEnglishName").value.trim().toUpperCase();
@@ -1566,7 +1572,6 @@
       const staff = document.getElementById("editStaff").value.trim();
       
       let status = document.getElementById("editStatus").value;
-      // 確保房號與狀態強行一致
       if (roomNo && (status === 'pending' || status === 'contacted' || status === 'booking_room')) {
         status = 'booked_room';
       } else if (!roomNo && status === 'booked_room') {
@@ -1590,6 +1595,22 @@
           returnAirline, departure, isDepartureUncertain, stayDays,
           points, staff, status, isBlacklisted, blacklistReason, note, auditLogs
         });
+
+        // 觸發情境 2：指派或變更接待專員時，自動發送 LINE 群組藍字 Tag 推播
+        if (staff && staff !== prevStaff) {
+          triggerLineNotify({
+            action: "assign_staff",
+            staffName: staff,
+            name: name,
+            clientType: "貴賓",
+            arrival: arrival,
+            stayDays: stayDays,
+            hotel: hotel,
+            roomNo: roomNo,
+            note: note || "無"
+          });
+        }
+
         window.closeEditDrawer();
       } catch(err) {
         alert("儲存失敗: " + err.message);
@@ -1944,7 +1965,16 @@
         createdAt: Date.now()
       });
 
-      alert("派遣任務已成功發布！");
+      // 觸發情境 3：發布臨時派遣任務時，即時推播包含藍字 @Tag 的 LINE 訊息
+      const fullContent = desc ? `${title} (${desc})` : title;
+      triggerLineNotify({
+        action: "extra_task",
+        staffName: assignee,
+        taskContent: fullContent,
+        deadline: dueDate.replace('T', ' ')
+      });
+
+      alert("派遣任務已成功發布並推播至 LINE 群組！");
       window.closeCreateTaskModal();
     };
 
@@ -2314,7 +2344,6 @@
         }
       }
 
-      // Chart 1
       const trendCtx = document.getElementById("chartTrend")?.getContext("2d");
       if (trendCtx) {
         const sortedDates = Object.keys(trendMap).sort();
@@ -2351,7 +2380,6 @@
         });
       }
 
-      // Chart 2
       const tierCtx = document.getElementById("chartTier")?.getContext("2d");
       if (tierCtx) {
         if (chartTierInstance) chartTierInstance.destroy();
@@ -2376,7 +2404,6 @@
         });
       }
 
-      // Chart 3
       const utmCtx = document.getElementById("chartUtm")?.getContext("2d");
       if (utmCtx) {
         const utmLabels = Object.keys(utmMap);
@@ -2410,7 +2437,6 @@
       }
     }
 
-    // CSV 匯出
     window.exportToCSV = () => {
       const list = Object.values(allGuests).filter(g => g.status !== 'merged');
       if (list.length === 0) {
@@ -2437,14 +2463,12 @@
   <input id="adminPassportUploadInput" type="file" accept="image/*" class="hidden" />
   <input id="dispatchUploadInput" type="file" accept="image/*" class="hidden" />
 
-  <!-- 派車單辨識 Loading -->
   <div id="dispatchLoadingOverlay" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex flex-col items-center justify-center p-4 z-[80] space-y-3">
     <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
     <div class="text-sm font-bold text-white">正在解析派車單截圖與核對英文姓名...</div>
     <div class="text-xs text-neutral-400">系統正在比對頂部預約人資訊</div>
   </div>
 
-  <!-- 登入驗證遮罩 -->
   <div id="authOverlay" class="hidden fixed inset-0 bg-neutral-950 flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 sm:p-8 max-w-sm w-full space-y-5 shadow-2xl relative overflow-hidden">
       <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 to-rose-600"></div>
@@ -2480,10 +2504,8 @@
     </div>
   </div>
 
-  <!-- 側邊欄抽屜遮罩 -->
   <div id="sidebarOverlay" onclick="toggleSidebar()" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm z-40 lg:hidden"></div>
 
-  <!-- 側邊抽屜導航欄 -->
   <aside id="sidebarNav" class="fixed top-0 bottom-0 left-0 w-64 bg-neutral-900/95 border-r border-neutral-800 p-5 flex flex-col justify-between z-40 transition-transform duration-300 backdrop-blur-md shadow-2xl">
     <div class="space-y-6">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
@@ -2558,7 +2580,6 @@
     </div>
   </aside>
 
-  <!-- 主內容區塊 -->
   <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300">
     
     <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
@@ -2583,7 +2604,6 @@
       </button>
     </div>
 
-    <!-- 即時營運行程數據卡片 -->
     <div id="rosterStatsGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setRosterFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">當前進行/即將抵達</div>
@@ -2603,7 +2623,6 @@
       </div>
     </div>
 
-    <!-- 房務數據卡片 -->
     <div id="housekeepingStatsGrid" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardHkAll" onclick="setHousekeepingFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
         <div class="text-[11px] text-neutral-400 font-medium">總登記筆數</div>
@@ -2776,7 +2795,6 @@
         </div>
       </div>
 
-      <!-- 6 大核心 KPI 矩陣 -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5">
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
           <div class="text-[11px] text-neutral-400 font-medium">區間總旅客數</div>
@@ -2804,7 +2822,6 @@
         </div>
       </div>
 
-      <!-- 4 大核心圖表 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2">
@@ -2845,7 +2862,6 @@
         </div>
       </div>
 
-      <!-- 管理員作戰待辦工作區 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
         <div class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -2914,7 +2930,6 @@
 
   </main>
 
-  <!-- 建立派遣任務彈窗 -->
   <div id="taskModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-[#121212] border border-neutral-800 rounded-3xl p-6 sm:p-7 max-w-md w-full space-y-5 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800/80 pb-3">
@@ -2929,7 +2944,7 @@
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">任務負責人全名 * <span class="text-[10px] text-neutral-500">(須與系統員工名冊全名一致)</span></label>
-          <input id="taskAssigneeInput" placeholder="負責人全名" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="taskAssigneeInput" placeholder="負責人全名（例：李庭瑜）" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
@@ -2955,7 +2970,6 @@
     </div>
   </div>
 
-  <!-- 派車單原圖燈箱 -->
   <div id="dispatchPhotoModal" onclick="if(event.target === this) closeDispatchPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -2973,7 +2987,6 @@
     </div>
   </div>
 
-  <!-- 重複客戶合併彈窗 -->
   <div id="mergeModal" class="hidden fixed inset-0 bg-neutral-950/90 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -3053,7 +3066,6 @@
     </div>
   </div>
 
-  <!-- 密碼變更彈窗 -->
   <div id="changePasswordModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -3085,7 +3097,6 @@
     </div>
   </div>
 
-  <!-- 新增員工帳號彈窗 -->
   <div id="userModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-3xl p-6 max-w-md w-full space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
@@ -3096,7 +3107,7 @@
       <div class="space-y-3 text-xs">
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">員工真實全名 *</label>
-          <input id="newUserName" placeholder="例：林小明" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="newUserName" placeholder="例：李庭瑜" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">員工 Google 帳號 (Email) *</label>
@@ -3130,7 +3141,6 @@
     </div>
   </div>
 
-  <!-- 派車單核對結果彈窗 -->
   <div id="dispatchResultModal" onclick="if(event.target === this) closeDispatchModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[75]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative text-center">
       <div id="dispatchResultIcon" class="text-xs font-mono font-bold text-neutral-400">[DISPATCH CHECK]</div>
@@ -3156,7 +3166,6 @@
     </div>
   </div>
 
-  <!-- 護照原圖燈箱 -->
   <div id="passportPhotoModal" onclick="if(event.target === this) closePassportPhotoModal()" class="hidden fixed inset-0 bg-neutral-950/95 backdrop-blur-md flex items-center justify-center p-4 z-[70]">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-2xl w-full p-5 space-y-3 shadow-2xl relative">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
@@ -3174,7 +3183,6 @@
     </div>
   </div>
 
-  <!-- 編輯 Drawer 彈窗 -->
   <div id="editDrawerModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-t-3xl sm:rounded-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 shadow-2xl">
       
@@ -3231,7 +3239,6 @@
           </div>
         </div>
 
-        <!-- 飯店與房號 -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">入住飯店</label>
@@ -3312,11 +3319,10 @@
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">接待專員</label>
-            <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+            <input id="editStaff" placeholder="指派人員（例：李庭瑜）" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
           </div>
         </div>
 
-        <!-- 獨立行程狀態區塊 -->
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">行程生命週期狀態</label>
           <select id="editStatus" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-medium outline-none focus:border-red-500 text-xs transition truncate text-ellipsis">
@@ -3332,7 +3338,6 @@
           </select>
         </div>
 
-        <!-- 異常/黑名單獨立維度 -->
         <div class="bg-red-950/20 border border-red-900/40 rounded-2xl p-3 space-y-2">
           <label class="flex items-center gap-2 cursor-pointer select-none">
             <input id="editIsBlacklisted" type="checkbox" class="w-4 h-4 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
@@ -3362,7 +3367,6 @@
     </div>
   </div>
 
-  <!-- 續住加訂彈窗 -->
   <div id="extendModal" class="hidden fixed inset-0 bg-neutral-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
