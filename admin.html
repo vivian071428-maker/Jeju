@@ -748,23 +748,27 @@
       }
     }
 
-    function getStatusBadgeHtml(status, otherText = '') {
-      if (status === 'confirmed') {
-        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950 text-blue-400 border border-blue-800/60 whitespace-nowrap">已確認</span>`;
-      } else if (status === 'picked_up') {
-        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/60 whitespace-nowrap">已接機</span>`;
-      } else if (status === 'checked_in') {
-        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800/60 whitespace-nowrap">已入住</span>`;
-      } else if (status === 'completed' || status === 'checked_out') {
-        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-300 border border-neutral-700 whitespace-nowrap">已結案</span>`;
-      } else if (status === 'cancelled') {
-        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950 text-rose-400 border border-rose-800/60 whitespace-nowrap">已取消</span>`;
-      } else if (status === 'other') {
-        const displayNote = otherText ? otherText.replace(/"/g, '&quot;') : '無說明';
-        return `<button onclick="alert('其他狀態說明：\\n${displayNote}')" class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 hover:bg-neutral-700 text-neutral-300 border border-neutral-600 transition whitespace-nowrap" title="點擊查看詳細說明">其他 (點此看)</button>`;
-      } else {
-        return `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neutral-800 text-neutral-400 whitespace-nowrap">待確認</span>`;
-      }
+    // 梳理後之全新生命週期狀態 Badge
+    function getStatusBadgeHtml(status) {
+      const statusConfig = {
+        'pending_contact': { label: '待確認 / 已聯繫', cls: 'bg-neutral-800 text-neutral-300 border border-neutral-700' },
+        'booking_room': { label: '待訂房 / 訂房中', cls: 'bg-amber-950 text-amber-300 border border-amber-800/80' },
+        'confirmed_pickup': { label: '待接機 (已確認)', cls: 'bg-blue-950 text-blue-300 border border-blue-800/80' },
+        'in_island': { label: '在島中 (已抵達)', cls: 'bg-emerald-950 text-emerald-300 border border-emerald-800/80' },
+        'extending': { label: '續住確認中', cls: 'bg-purple-950 text-purple-300 border border-purple-800/80' },
+        'departed_followup': { label: '已離境 (待回訪)', cls: 'bg-sky-950 text-sky-300 border border-sky-800/80' },
+        'completed': { label: '已結案', cls: 'bg-neutral-900 text-neutral-500 border border-neutral-800' }
+      };
+
+      // 相容舊狀態
+      let normalized = status;
+      if (status === 'pending') normalized = 'pending_contact';
+      if (status === 'confirmed') normalized = 'confirmed_pickup';
+      if (status === 'picked_up' || status === 'checked_in') normalized = 'in_island';
+      if (status === 'checked_out') normalized = 'departed_followup';
+
+      const cfg = statusConfig[normalized] || { label: '待確認', cls: 'bg-neutral-800 text-neutral-400 border border-neutral-700' };
+      return `<span class="px-2 py-0.5 rounded text-[11px] font-bold ${cfg.cls} whitespace-nowrap">${cfg.label}</span>`;
     }
 
     function renderDashboard() {
@@ -919,6 +923,8 @@
         return (g.name || "").toLowerCase().includes(searchVal) ||
                (g.englishName || "").toLowerCase().includes(searchVal) ||
                (g.memberId || "").toLowerCase().includes(searchVal) ||
+               (g.hotel || "").toLowerCase().includes(searchVal) ||
+               (g.roomNo || "").toLowerCase().includes(searchVal) ||
                (g.referrer || "").toLowerCase().includes(searchVal) ||
                (g.passport || "").toLowerCase().includes(searchVal) ||
                (g.nationalId || "").toLowerCase().includes(searchVal) ||
@@ -927,7 +933,7 @@
                (g.returnAirline || "").toLowerCase().includes(searchVal) ||
                (g.staff || "").toLowerCase().includes(searchVal) ||
                (g.note || "").toLowerCase().includes(searchVal) ||
-               (g.statusOtherNote || "").toLowerCase().includes(searchVal);
+               (g.blacklistReason || "").toLowerCase().includes(searchVal);
       });
 
       filtered.sort((a, b) => {
@@ -964,7 +970,7 @@
           ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
           : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
 
-        const statusBadge = getStatusBadgeHtml(g.status, g.statusOtherNote);
+        const statusBadge = getStatusBadgeHtml(g.status);
 
         const passKey = (g.passport || '').trim().toUpperCase();
         const idKey = (g.nationalId || '').trim().toUpperCase();
@@ -973,11 +979,11 @@
 
         const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [] };
         
-        let clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-blue-950 border border-blue-800 text-blue-400 text-[10px] font-medium whitespace-nowrap">新客</span>`;
+        let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-blue-950 border border-blue-800 text-blue-400 text-[10px] font-bold whitespace-nowrap">新客</span>`;
         if (profile.clientType === 'long') {
-          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-red-950 border border-red-800/60 text-red-300 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
+          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800/80 text-red-300 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
         } else if (profile.clientType === 'short') {
-          clientTypeTag = `<span class="px-1.5 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
+          clientTypeTag = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
         }
 
         const stayDays = parseInt(g.stayDays, 10) || (g.isDepartureUncertain ? 5 : 1);
@@ -1000,42 +1006,66 @@
 
         const duplicateAlertBtn = duplicateCandidate
           ? `<button onclick="openMergeModal('${g.id}', '${duplicateCandidate.guest.id}', '${duplicateCandidate.match.reason}')" class="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-800 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
-               <span>[發現重複紀錄 (點此合併)]</span>
+               <span>[重複紀錄]</span>
              </button>`
           : ``;
 
+        const blacklistBadge = g.isBlacklisted
+          ? `<button onclick="alert('⚠️ 黑名單/異常原因說明：\\n${(g.blacklistReason || '無具體說明').replace(/"/g, '&quot;')}')" class="px-2 py-0.5 rounded bg-red-950 border border-red-600 text-red-400 text-[10px] font-black animate-pulse flex items-center gap-0.5">⚠️ 黑名單</button>`
+          : ``;
+
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
-          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-3 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded-lg text-xs font-medium transition flex items-center gap-1">補傳護照</button>`;
 
         const dispatchVerifyBadge = g.dispatchVerified
-          ? `<button onclick="viewDispatchPhoto('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單</button>`
-          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-2.5 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">核對車單</button>`;
+          ? `<button onclick="viewDispatchPhoto('${g.id}')" class="px-3 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">派車單</button>`
+          : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-3 py-1 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-sm">核對車單</button>`;
+
+        const hotelDisplay = g.hotel || '濟州君悅';
+        const roomDisplay = g.roomNo ? `${hotelDisplay} - ${g.roomNo} 房` : `${hotelDisplay} (待排房)`;
 
         return `
-          <div class="bg-neutral-900 border border-neutral-800/90 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
-            <div class="flex items-center justify-between gap-3 border-b border-neutral-800 pb-2.5">
-              <div class="flex items-center gap-1.5 flex-wrap min-w-0">
-                <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-1.5">
-                  <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
-                    ${g.name || '未填寫'}
-                  </span>
-                  <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
+          <div class="bg-[#121212] border border-neutral-800/90 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl hover:border-neutral-700 transition">
+            
+            <!-- 手機版優化：上下兩層結構 -->
+            <div class="space-y-2.5 border-b border-neutral-800/80 pb-3">
+              
+              <!-- 第一行：客戶姓名（絕不折行） + 英文名 + 客群標籤 + 修改 -->
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2 flex-wrap min-w-0">
+                  <span class="text-lg font-black text-white tracking-tight">${g.name || '未填寫'}</span>
+                  <span class="text-xs text-neutral-400 font-mono font-medium">(${g.englishName || '-'})</span>
                   ${clientTypeTag}
-                  <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 修改</span>
+                  ${blacklistBadge}
+                  ${duplicateAlertBtn}
+                </div>
+                <button onclick="openEditDrawer('${g.id}')" class="text-xs text-red-500 hover:text-red-400 font-bold whitespace-nowrap px-2 py-1 bg-red-950/40 rounded-lg border border-red-900/40">
+                  ✎ 修改
                 </button>
-                ${duplicateAlertBtn}
               </div>
-              <div class="flex items-center gap-2">
-                ${dispatchVerifyBadge}
-                ${passportPhotoBtn}
-                ${statusBadge}
+
+              <!-- 第二行：操作按鈕（派車單 / 護照照片）+ 流程狀態標籤 -->
+              <div class="flex items-center justify-between gap-2 pt-0.5">
+                <div class="flex items-center gap-2">
+                  ${dispatchVerifyBadge}
+                  ${passportPhotoBtn}
+                </div>
+                <div>
+                  ${statusBadge}
+                </div>
               </div>
+
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
-              <div class="space-y-1">
+            <!-- 客戶重要資訊與房號 -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs text-neutral-400">
+              <div class="space-y-1.5">
                 ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
+                <div class="text-neutral-200">
+                  <span class="text-neutral-500">入住飯店/房號:</span> 
+                  <span class="font-bold text-amber-300 font-mono">${roomDisplay}</span>
+                </div>
                 <div class="flex items-center gap-1.5 font-mono text-neutral-300">
                   <span>護照: ${passText}</span>
                   <button onclick="toggleMask('${g.id}')" class="p-0.5 rounded hover:bg-neutral-800 transition" title="切換遮罩">
@@ -1048,7 +1078,7 @@
                 <div class="text-amber-400 font-mono font-medium">累積總積分: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(歷史: ${profile.closedHistoryPoints} + 本次: ${g.points || 0})</span></div>
               </div>
 
-              <div class="space-y-1">
+              <div class="space-y-1.5">
                 <div>去程航班: <span class="bg-neutral-800 text-red-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedArrivalFlight}</span></div>
                 <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
                 <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
@@ -1058,7 +1088,7 @@
             </div>
 
             ${g.note ? `
-              <div class="bg-neutral-950/70 border border-neutral-800 rounded-xl p-2 text-[11px] text-amber-300/90 flex items-start gap-1.5">
+              <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-2.5 text-xs text-amber-300/90 flex items-start gap-1.5">
                 <span class="text-amber-500 font-bold whitespace-nowrap">客戶需求/備註:</span>
                 <span class="truncate">${g.note}</span>
               </div>
@@ -1067,7 +1097,7 @@
             <div class="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-xs">
               <div class="text-[11px] text-neutral-400">專員: <span class="text-neutral-200 font-medium">${g.staff || '未指派'}</span></div>
               <div class="flex items-center gap-2">
-                <button onclick="openEditDrawer('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition whitespace-nowrap">
+                <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold transition whitespace-nowrap">
                   歷史紀錄 / 預約行程
                 </button>
                 <button onclick="deleteGuest('${g.id}')" class="px-2 py-1 text-neutral-500 hover:text-red-400 transition text-xs whitespace-nowrap">
@@ -1153,20 +1183,22 @@
           : (g.departure ? g.departure.split('T')[0] : '-');
 
         const formattedReturnFlight = g.isDepartureUncertain ? '未定' : formatFlightWithAirline(g.returnAirline);
+        const hotelDisplay = g.hotel || '濟州君悅';
+        const roomDisplay = g.roomNo ? `${hotelDisplay} - ${g.roomNo} 房` : `${hotelDisplay} (待排房)`;
 
         return `
-          <div class="border ${cardBorder} bg-neutral-900 rounded-2xl p-4 flex flex-col justify-between gap-3 shadow-lg">
+          <div class="border ${cardBorder} bg-[#121212] rounded-3xl p-4 flex flex-col justify-between gap-3 shadow-xl">
             <div>
               <div class="flex items-center justify-between gap-2 mb-2">
-                <button onclick="openEditDrawer('${g.id}')" class="text-sm font-bold text-white hover:text-red-400 transition text-left underline decoration-neutral-700 flex items-center gap-1">
+                <button onclick="openEditDrawer('${g.id}')" class="text-base font-bold text-white hover:text-red-400 transition text-left underline decoration-neutral-700 flex items-center gap-1.5">
                   <span>${g.name || '未填'}</span>
                   <span class="text-xs font-normal text-neutral-400">(${g.englishName || '-'})</span>
                   <span class="text-[10px] text-red-500 font-normal">✎</span>
                 </button>
                 <div class="flex-shrink-0">${badge}</div>
               </div>
-              <div class="text-xs text-neutral-400 space-y-1">
-                ${g.memberId ? `<div>會員編號: <span class="text-red-400 font-mono font-bold">#${g.memberId}</span></div>` : ''}
+              <div class="text-xs text-neutral-400 space-y-1.5">
+                <div>飯店/房號: <span class="text-amber-300 font-bold font-mono">${roomDisplay}</span></div>
                 <div>客群: <span class="text-neutral-200">${profile.clientType === 'long' ? '長期客戶' : (profile.clientType === 'short' ? '短期客戶' : '新客')}</span> | 累積總積分: <span class="text-amber-400 font-bold">${profile.totalPoints}</span> 點</div>
                 ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
                 <div>LINE: <span class="text-neutral-200 font-medium">${g.lineNickname || '-'}</span></div>
@@ -1179,14 +1211,14 @@
             </div>
 
             <div class="pt-3 border-t border-neutral-800/80 flex flex-col gap-2">
-              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure || '未定'}', ${nightsRemaining})" class="w-full py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-medium rounded-xl transition">
+              <button onclick="copyLineCareText('${g.name}', '${g.staff || '接待專員'}', '${g.departure || '未定'}', ${nightsRemaining})" class="w-full py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl transition">
                 複製 LINE 關懷話術
               </button>
               <div class="grid grid-cols-2 gap-2">
-                <button onclick="openExtendModal('${g.id}', ${stayDays})" class="py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
+                <button onclick="openExtendModal('${g.id}', ${stayDays})" class="py-2.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-xl transition shadow-md shadow-red-950">
                   + 續住加訂
                 </button>
-                <button onclick="closeStayCase('${g.id}')" class="py-2 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-medium rounded-xl transition">
+                <button onclick="closeStayCase('${g.id}')" class="py-2.5 bg-neutral-950 border border-neutral-700 hover:bg-neutral-800 text-neutral-300 text-xs font-semibold rounded-xl transition">
                   結案退房
                 </button>
               </div>
@@ -1239,6 +1271,8 @@
           return (g.name || "").toLowerCase().includes(searchVal) ||
                  (g.englishName || "").toLowerCase().includes(searchVal) ||
                  (g.memberId || "").toLowerCase().includes(searchVal) ||
+                 (g.hotel || "").toLowerCase().includes(searchVal) ||
+                 (g.roomNo || "").toLowerCase().includes(searchVal) ||
                  (g.passport || "").toLowerCase().includes(searchVal) ||
                  (g.nationalId || "").toLowerCase().includes(searchVal) ||
                  (g.referrer || "").toLowerCase().includes(searchVal) ||
@@ -1288,11 +1322,15 @@
         }
 
         const passportPhotoBtn = g.passportImage 
-          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-2.5 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
-          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2 py-0.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded text-[11px] font-medium transition flex items-center gap-1">補傳護照</button>`;
+          ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-3 py-1 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-md shadow-red-950">護照照片</button>`
+          : `<button onclick="triggerUploadPassport('${g.id}')" class="px-2.5 py-1 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded-lg text-xs font-medium transition flex items-center gap-1">補傳護照</button>`;
+
+        const blacklistBadge = g.isBlacklisted
+          ? `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-600 text-red-400 text-[10px] font-black">⚠️ 黑名單</span>`
+          : ``;
 
         return `
-          <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 space-y-3 shadow-lg hover:border-neutral-700 transition">
+          <div class="bg-[#121212] border border-neutral-800 rounded-3xl p-4 sm:p-5 space-y-3 shadow-xl hover:border-neutral-700 transition">
             <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
               <button onclick="openEditDrawer('${g.id}')" class="text-left group flex items-center gap-2 flex-wrap min-w-0">
                 <span class="text-base font-bold text-white group-hover:text-red-400 transition underline underline-offset-4 decoration-neutral-700 group-hover:decoration-red-400">
@@ -1300,6 +1338,7 @@
                 </span>
                 <span class="text-xs text-neutral-400 font-mono">(${g.englishName || '-'})</span>
                 ${clientTypeTag}
+                ${blacklistBadge}
                 <span class="text-[10px] text-red-500 font-normal whitespace-nowrap">✎ 編輯</span>
               </button>
               <div class="text-right flex items-center gap-3">
@@ -1321,7 +1360,7 @@
                   </button>
                 </div>
                 <div class="font-mono text-neutral-300">身分證: ${idText}</div>
-                <div>LINE 暱稱: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
+                <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
                 ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
               </div>
               <div class="space-y-1">
@@ -1335,7 +1374,7 @@
               <button onclick="deleteEntireClient('${p.key}')" class="text-xs text-neutral-500 hover:text-red-400 transition font-medium">
                 刪除客戶全紀錄
               </button>
-              <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold transition">
+              <button onclick="openEditDrawer('${g.id}')" class="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 hover:text-white rounded-xl text-xs font-semibold transition">
                 查看客戶完整歷程 / 編輯資料
               </button>
             </div>
@@ -1356,6 +1395,8 @@
       document.getElementById("editReferrer").value = g.referrer || "";
       document.getElementById("editName").value = g.name || "";
       document.getElementById("editEnglishName").value = g.englishName || "";
+      document.getElementById("editHotel").value = g.hotel || "濟州君悅";
+      document.getElementById("editRoomNo").value = g.roomNo || "";
       document.getElementById("editPassport").value = g.passport || "";
       document.getElementById("editNationalId").value = g.nationalId || "";
       document.getElementById("editBirthday").value = g.birthday || "";
@@ -1369,11 +1410,22 @@
       document.getElementById("editStayDays").value = g.stayDays || 5;
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editStaff").value = g.staff || "";
-      document.getElementById("editStatus").value = g.status || "pending";
-      document.getElementById("editStatusOtherNote").value = g.statusOtherNote || "";
-      document.getElementById("editNote").value = g.note || "";
+      
+      // 狀態映射
+      let st = g.status || "pending_contact";
+      if (st === 'pending') st = 'pending_contact';
+      if (st === 'confirmed') st = 'confirmed_pickup';
+      if (st === 'picked_up' || st === 'checked_in') st = 'in_island';
+      if (st === 'checked_out') st = 'departed_followup';
+      document.getElementById("editStatus").value = st;
 
-      document.getElementById("statusOtherContainer").classList.toggle("hidden", g.status !== 'other');
+      // 黑名單
+      const isBlack = !!g.isBlacklisted;
+      document.getElementById("editIsBlacklisted").checked = isBlack;
+      document.getElementById("blacklistReasonContainer").classList.toggle("hidden", !isBlack);
+      document.getElementById("editBlacklistReason").value = g.blacklistReason || "";
+
+      document.getElementById("editNote").value = g.note || "";
 
       const passKey = (g.passport || '').trim().toUpperCase();
       const idKey = (g.nationalId || '').trim().toUpperCase();
@@ -1404,7 +1456,7 @@
             <span>${v.arrival ? v.arrival.split('T')[0] : '未定'} ~ ${v.departure ? v.departure.split('T')[0] : '未定'}</span>
             <span class="text-amber-400 font-mono">${v.points || 0} 點</span>
           </div>
-          <div class="text-[11px] text-neutral-500">航班: ${v.airline || '-'} | 專員: ${v.staff || '-'} | 狀態: ${v.status || '未結案'}</div>
+          <div class="text-[11px] text-neutral-500">飯店: ${v.hotel || '君悅'} | 房號: ${v.roomNo || '未定'} | 專員: ${v.staff || '-'}</div>
         </div>
       `).join("");
 
@@ -1431,8 +1483,8 @@
 
     window.onDrawerPointsInput = () => {};
 
-    document.getElementById("editStatus")?.addEventListener("change", (e) => {
-      document.getElementById("statusOtherContainer").classList.toggle("hidden", e.target.value !== 'other');
+    document.getElementById("editIsBlacklisted")?.addEventListener("change", (e) => {
+      document.getElementById("blacklistReasonContainer")?.classList.toggle("hidden", !e.target.checked);
     });
 
     window.saveGuestDetails = async () => {
@@ -1441,6 +1493,8 @@
 
       const name = document.getElementById("editName").value.trim();
       const englishName = document.getElementById("editEnglishName").value.trim().toUpperCase();
+      const hotel = document.getElementById("editHotel").value.trim();
+      const roomNo = document.getElementById("editRoomNo").value.trim();
       const passport = document.getElementById("editPassport").value.trim().toUpperCase();
       const nationalId = formatNationalId(document.getElementById("editNationalId").value);
       const birthday = document.getElementById("editBirthday").value;
@@ -1457,21 +1511,22 @@
       const points = parseInt(document.getElementById("editPoints").value, 10) || 0;
       const staff = document.getElementById("editStaff").value.trim();
       const status = document.getElementById("editStatus").value;
-      const statusOtherNote = document.getElementById("editStatusOtherNote").value.trim();
+      const isBlacklisted = document.getElementById("editIsBlacklisted").checked;
+      const blacklistReason = isBlacklisted ? document.getElementById("editBlacklistReason").value.trim() : "";
       const note = document.getElementById("editNote").value.trim();
 
       const auditLogs = g.auditLogs || [];
       auditLogs.unshift({
         time: Date.now(),
-        msg: `由【${currentUser.name}】修改資料更新狀態為 [${status}]`
+        msg: `由【${currentUser.name}】更新資料 [狀態: ${status}]`
       });
 
       try {
         await update(ref(db, `guests/${currentEditGuestId}`), {
-          name, englishName, passport, nationalId, birthday, gender,
+          name, englishName, hotel, roomNo, passport, nationalId, birthday, gender,
           lineNickname, memberId, referrer, airline, arrival,
           returnAirline, departure, isDepartureUncertain, stayDays,
-          points, staff, status, statusOtherNote, note, auditLogs
+          points, staff, status, isBlacklisted, blacklistReason, note, auditLogs
         });
         window.closeEditDrawer();
       } catch(err) {
@@ -1530,7 +1585,8 @@
       await update(ref(db, `guests/${currentExtendingGuestId}`), {
         stayDays: newStayDays,
         departure: newDep,
-        isDepartureUncertain: false
+        isDepartureUncertain: false,
+        status: 'extending'
       });
 
       alert(`續住辦理完成！總住宿晚數已更新為 ${newStayDays} 晚。`);
@@ -1661,12 +1717,12 @@
       document.getElementById("mergeMasterInfo").innerHTML = `
         <div>姓名: <b class="text-white">${g1.name}</b> (${g1.englishName || '-'})</div>
         <div>護照: ${g1.passport || '-'} | 身分證: ${g1.nationalId || '-'}</div>
-        <div>抵達: ${g1.arrival || '-'} | 專員: ${g1.staff || '-'}</div>
+        <div>飯店: ${g1.hotel || '君悅'} | 房號: ${g1.roomNo || '-'}</div>
       `;
       document.getElementById("mergeSecondaryInfo").innerHTML = `
         <div>姓名: <b class="text-amber-300">${g2.name}</b> (${g2.englishName || '-'})</div>
         <div>護照: ${g2.passport || '-'} | 身分證: ${g2.nationalId || '-'}</div>
-        <div>抵達: ${g2.arrival || '-'} | 專員: ${g2.staff || '-'}</div>
+        <div>飯店: ${g2.hotel || '君悅'} | 房號: ${g2.roomNo || '-'}</div>
       `;
 
       document.getElementById("mergeFormName").value = g1.name || g2.name || "";
@@ -1738,10 +1794,8 @@
       let count = 0;
 
       if (currentUser.role === 'admin') {
-        // 管理員：專員已回傳更新但管理員尚未確認結案 (hasAdminUnread)
         count = list.filter(t => t.status !== 'closed' && t.hasAdminUnread).length;
       } else {
-        // 員工：指派給自己且尚未標記已讀 (hasStaffUnread)
         const myName = (currentUser.name || '').trim().toLowerCase();
         count = list.filter(t => t.status !== 'closed' && (t.assignee || '').trim().toLowerCase() === myName && t.hasStaffUnread).length;
       }
@@ -1832,7 +1886,6 @@
       window.closeCreateTaskModal();
     };
 
-    // 員工回傳進度 (即使選已完成也不會真正 closed，須待管理員結案)
     window.submitTaskFeedback = async (taskId) => {
       const statusSelect = document.getElementById(`taskStatusSelect_${taskId}`);
       const feedbackInput = document.getElementById(`taskFeedbackInput_${taskId}`);
@@ -1852,7 +1905,6 @@
       alert(newStatus === 'completed_pending_review' ? "已回報完成！請靜候管理員核定結案。" : "進度與說明已成功回傳！");
     };
 
-    // 管理員專屬：確認結案關閉該任務
     window.adminCloseTask = async (taskId) => {
       if (currentUser?.role !== 'admin') return;
       if (confirm("確認核准此任務並【正式結案歸檔】嗎？")) {
@@ -1938,7 +1990,6 @@
             </div>
 
             ${isAdmin ? `
-              <!-- 管理員視角：專員最新回報情況 + 結案按鈕 -->
               <div class="border-t border-neutral-800/80 pt-3.5 space-y-3">
                 <div class="bg-neutral-950/90 border border-neutral-800 rounded-2xl p-3 text-xs space-y-1">
                   <div class="text-[11px] text-neutral-500 font-medium">專員最新回報說明：</div>
@@ -1954,7 +2005,6 @@
                 `}
               </div>
             ` : `
-              <!-- 員工視角：填寫進度並回傳 -->
               ${!isClosed ? `
                 <div class="border-t border-neutral-800/80 pt-3.5 space-y-3">
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
@@ -2123,7 +2173,7 @@
         else tierOther++;
 
         if (p.clientType === 'long') vipCount++;
-        if (g.status === 'cancelled') abnormalCount++;
+        if (g.status === 'cancelled' || g.isBlacklisted) abnormalCount++;
 
         const st = g.staff || '未指派';
         staffPointsMap[st] = (staffPointsMap[st] || 0) + (parseInt(g.points, 10) || 0);
@@ -2303,9 +2353,9 @@
         return;
       }
 
-      let csv = "\uFEFF姓名,英文姓名,護照號碼,身分證,電話,航班,抵達時間,離開時間,住宿天數,積分,接待專員,狀態,UTM來源,備註\n";
+      let csv = "\uFEFF姓名,英文姓名,入住飯店,房號,護照號碼,身分證,電話,航班,抵達時間,離開時間,住宿天數,積分,接待專員,狀態,黑名單,黑名單原因,UTM來源,備註\n";
       list.forEach(g => {
-        csv += `"${g.name || ''}","${g.englishName || ''}","${g.passport || ''}","${g.nationalId || ''}","${g.phone || ''}","${g.airline || ''}","${g.arrival || ''}","${g.departure || ''}","${g.stayDays || 5}","${g.points || 0}","${g.staff || ''}","${g.status || ''}","${g.utmSource || 'direct'}","${(g.note || '').replace(/"/g, '""')}"\n`;
+        csv += `"${g.name || ''}","${g.englishName || ''}","${g.hotel || '濟州君悅'}","${g.roomNo || ''}","${g.passport || ''}","${g.nationalId || ''}","${g.phone || ''}","${g.airline || ''}","${g.arrival || ''}","${g.departure || ''}","${g.stayDays || 5}","${g.points || 0}","${g.staff || ''}","${g.status || ''}","${g.isBlacklisted ? '是' : '否'}","${(g.blacklistReason || '').replace(/"/g, '""')}","${g.utmSource || 'direct'}","${(g.note || '').replace(/"/g, '""')}"\n`;
       });
 
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -2454,7 +2504,6 @@
             <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
             <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
           </button>
-          <!-- 漢堡選單上的紅點數字徽章 -->
           <span id="burgerTaskBadge" class="hidden absolute -top-1.5 -right-1.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-black min-w-[17px] text-center border-2 border-neutral-950 shadow-md animate-pulse">0</span>
         </div>
         <div>
@@ -2513,7 +2562,7 @@
     <div id="rosterView" class="space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-2.5 shadow-md">
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
-          <input id="searchInput" placeholder="搜尋會員編號、姓名、護照、身分證、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="searchInput" placeholder="搜尋姓名、護照、身分證、飯店、房號、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
@@ -2554,7 +2603,7 @@
             <h3 class="text-xs font-bold text-white">所有貴賓客戶名冊</h3>
             <span class="text-[11px] text-neutral-400">(共篩選出 <b id="crmTotalCount" class="text-amber-400 font-mono">0</b> 位貴賓)</span>
           </div>
-          <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、飯店、房號、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-center text-xs">
@@ -2685,7 +2734,7 @@
           <div id="kpiIncompleteData" class="text-xl sm:text-2xl font-black text-red-400 font-mono">0</div>
         </div>
         <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 space-y-1">
-          <div class="text-[11px] text-neutral-400 font-medium">異常/取消數量</div>
+          <div class="text-[11px] text-neutral-400 font-medium">異常/黑名單數量</div>
           <div id="kpiAbnormalCount" class="text-xl sm:text-2xl font-black text-neutral-400 font-mono">0</div>
         </div>
       </div>
@@ -2828,7 +2877,7 @@
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">詳細說明 / 注意事項</label>
-          <textarea id="taskDescInput" rows="3" placeholder="請詳細說明任務內容" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
+          <textarea id="taskDescInput" rows="3" placeholder="請填寫具體說明..." class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs leading-relaxed"></textarea>
         </div>
       </div>
 
@@ -3117,6 +3166,18 @@
           </div>
         </div>
 
+        <!-- 飯店與房號 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label class="block text-neutral-400 mb-1">入住飯店</label>
+            <input id="editHotel" placeholder="預設: 濟州君悅 (可修改)" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-amber-400 font-semibold mb-1">入住房號 (Room No.)</label>
+            <input id="editRoomNo" placeholder="例：1208" class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-300 font-mono font-bold outline-none focus:border-amber-500 text-xs transition" />
+          </div>
+        </div>
+
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div>
             <label id="editPassportLabel" class="block text-neutral-400 mb-1">護照號碼</label>
@@ -3189,22 +3250,29 @@
             <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">處理狀態</label>
+            <label class="block text-neutral-400 mb-1">行程生命週期狀態</label>
             <select id="editStatus" class="w-full px-2 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition">
-              <option value="pending">待確認</option>
-              <option value="confirmed">已確認</option>
-              <option value="picked_up">已接機</option>
-              <option value="checked_in">已入住</option>
-              <option value="completed">已結案</option>
-              <option value="cancelled">已取消</option>
-              <option value="other">其他</option>
+              <option value="pending_contact">1. 待確認 / 已聯繫</option>
+              <option value="booking_room">2. 待訂房 / 訂房中</option>
+              <option value="confirmed_pickup">3. 待接機 (已確認)</option>
+              <option value="in_island">4. 在島中 (已抵達)</option>
+              <option value="extending">5. 續住確認中</option>
+              <option value="departed_followup">6. 已離境 (待回訪)</option>
+              <option value="completed">7. 已結案</option>
             </select>
           </div>
         </div>
 
-        <div id="statusOtherContainer" class="hidden">
-          <label class="block text-amber-400 font-semibold mb-1">其他狀態具體說明</label>
-          <input id="editStatusOtherNote" maxlength="20" placeholder="例如：等候改簽航班、客人自主退訂..." class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-300 outline-none focus:border-amber-500 text-xs transition" />
+        <!-- 異常/黑名單獨立維度 -->
+        <div class="bg-red-950/20 border border-red-900/40 rounded-2xl p-3 space-y-2">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input id="editIsBlacklisted" type="checkbox" class="w-4 h-4 rounded bg-neutral-950 border-neutral-800 text-red-600 focus:ring-0 cursor-pointer accent-red-600" />
+            <span class="text-xs font-bold text-red-400">標記為【黑名單 / 異常客戶】</span>
+          </label>
+          <div id="blacklistReasonContainer" class="hidden">
+            <label class="block text-[11px] text-neutral-400 mb-1">異常/黑名單具體原因說明：</label>
+            <input id="editBlacklistReason" placeholder="例如：失聯跑單、現場衝突、未依規定結算等..." class="w-full px-3 py-2 bg-neutral-950 border border-red-900/60 rounded-xl text-red-300 outline-none focus:border-red-500 text-xs transition" />
+          </div>
         </div>
 
         <div>
