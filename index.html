@@ -350,7 +350,7 @@
 
       let isUncertain = departureUncertain.checked;
       let depValue = isUncertain ? "" : departureInput.value;
-      let stayDaysCount = 1;
+      let stayDaysCount = isUncertain ? 5 : 1;
 
       if (!isUncertain && depValue && arrivalInput.value) {
         const arrDate = new Date(arrivalInput.value);
@@ -390,6 +390,25 @@
           status: "pending",
           housekeepingStatus: "normal",
           createdAt: Date.now()
+        });
+
+        // GAS 轉發 Webhook 網址
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbzSY3vAlbSsiXjPpzb3noeQ5F9s7ilE1r7QKC87a5MN5UYtRzqaCwxxobHRPrKM6nKQ/exec";
+
+        // 送出表單資料並觸發 LINE 群組 @All 推播
+        fetch(GAS_URL, {
+          method: "POST",
+          mode: "no-cors",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: nameInput.value.trim(),
+            clientType: "新客",
+            arrival: arrivalInput.value,
+            stayDays: stayDaysCount,
+            note: noteInput.value.trim() || "無"
+          })
         });
 
         formContainer.classList.add("hidden");
