@@ -3,17 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>濟州島貴賓管理系統 - 管理後台</title>
+  <title>濟州島貴賓管理系統 </title>
+  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700;900&display=swap');
-    body { font-family: 'Noto Sans TC', sans-serif; }
+    body { 
+      font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+    }
     input[type="date"]::-webkit-calendar-picker-indicator,
     input[type="datetime-local"]::-webkit-calendar-picker-indicator {
       filter: invert(1);
       cursor: pointer;
     }
+    /* 自訂滾動條 */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0a0a; }
+    ::-webkit-scrollbar-thumb { background: #262626; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #404040; }
   </style>
+
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
     import { getDatabase, ref, onValue, update, remove, push, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
@@ -43,7 +54,7 @@
     let searchTerm = "";
     let currentEditKey = null;
 
-    // 監聽客人與專員資料庫
+    // 監聽客人與專員資料
     onValue(ref(db, "guests"), (snapshot) => {
       rawGuests = snapshot.val() || {};
       renderStats();
@@ -72,7 +83,6 @@
         if (g.status !== "completed" && g.status !== "checked_out") {
           active++;
 
-          // 計算房務續訂警戒 (剩餘 48 小時內)
           let depTs = 0;
           if (g.isDepartureUncertain || !g.departure) {
             if (g.arrival) {
@@ -91,7 +101,6 @@
           }
         }
 
-        // 下次回訪提醒倒數
         if (g.nextVisitDate) {
           const vTs = new Date(g.nextVisitDate + "T00:00:00").getTime();
           const dLeft = Math.round((vTs - todayZero) / 86400000);
@@ -155,7 +164,6 @@
         return true;
       });
 
-      // 依抵達時間由近到遠排序
       entries.sort((a, b) => {
         const tA = a[1].arrival ? new Date(a[1].arrival).getTime() : 0;
         const tB = b[1].arrival ? new Date(b[1].arrival).getTime() : 0;
@@ -175,7 +183,7 @@
         const card = document.createElement("div");
         card.className = "bg-neutral-900 border border-neutral-800 hover:border-neutral-700 transition rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-xl relative overflow-hidden";
 
-        // 房務續訂警戒標籤計算
+        // 房務警戒推播標籤
         let extensionNotice = "";
         let depTs = 0;
         if (g.isDepartureUncertain || !g.departure) {
@@ -194,24 +202,24 @@
           if (hLeft <= 48 && hLeft >= -12) {
             const daysRemaining = Math.max(1, Math.ceil(hLeft / 24));
             extensionNotice = `
-              <div class="bg-rose-950/60 border border-rose-900/80 text-rose-300 p-2 rounded-xl text-xs flex items-center justify-between font-medium animate-pulse">
+              <div class="bg-rose-950/60 border border-rose-900/80 text-rose-300 p-2.5 rounded-xl text-xs flex items-center justify-between font-medium animate-pulse">
                 <span>⚠️ 房務續訂警戒</span>
-                <span class="font-mono font-bold">剩餘 ${daysRemaining} 晚 (請確認續住/返程)</span>
+                <span class="font-mono font-bold whitespace-nowrap">剩餘 ${daysRemaining} 晚 (請確認續住/返程)</span>
               </div>
             `;
           }
         }
 
-        // 下次回訪時間標籤
+        // 下次回訪時間標籤 (新增)
         let followUpBadge = "";
         if (g.nextVisitDate) {
           const vTs = new Date(g.nextVisitDate + "T00:00:00").getTime();
           const dLeft = Math.round((vTs - todayZero) / 86400000);
           const isUrgent = dLeft <= 14 && dLeft >= 0;
           followUpBadge = `
-            <div class="mt-2 text-xs flex items-center justify-between px-3 py-1.5 rounded-xl ${isUrgent ? 'bg-amber-950/60 border border-amber-800 text-amber-300' : 'bg-neutral-950 border border-neutral-800 text-neutral-400'}">
-              <span class="font-bold flex items-center gap-1.5">🗓 預計下次回訪：${g.nextVisitDate}</span>
-              <span class="font-mono font-bold ${isUrgent ? 'text-rose-400 font-black animate-pulse' : ''}">${dLeft >= 0 ? `(倒數 ${dLeft} 天)` : '(已逾期)'}</span>
+            <div class="mt-2 text-xs flex items-center justify-between px-3 py-2 rounded-xl ${isUrgent ? 'bg-amber-950/60 border border-amber-800 text-amber-300' : 'bg-neutral-950 border border-neutral-800 text-neutral-400'}">
+              <span class="font-bold flex items-center gap-1.5 whitespace-nowrap">🗓 預計回訪：${g.nextVisitDate}</span>
+              <span class="font-mono font-bold whitespace-nowrap ${isUrgent ? 'text-rose-400 font-black animate-pulse' : ''}">${dLeft >= 0 ? `(倒數 ${dLeft} 天)` : '(已逾期)'}</span>
             </div>
           `;
         }
@@ -223,17 +231,17 @@
             <div class="flex items-start justify-between gap-2 border-b border-neutral-800 pb-3">
               <div>
                 <div class="flex items-center gap-2 flex-wrap">
-                  <h3 class="text-base sm:text-lg font-black text-white tracking-tight">${g.name || "未填寫"}</h3>
-                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${g.clientType === 'VIP' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-neutral-800 text-neutral-300'}">${g.clientType || "新客"}</span>
-                  ${g.gender ? `<span class="text-[10px] font-medium text-neutral-400 font-mono">(${g.gender})</span>` : ''}
+                  <h3 class="text-base sm:text-lg font-black text-white tracking-tight whitespace-nowrap">${g.name || "未填寫"}</h3>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${g.clientType === 'VIP' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-neutral-800 text-neutral-300'}">${g.clientType || "新客"}</span>
+                  ${g.gender ? `<span class="text-[10px] font-medium text-neutral-400 font-mono whitespace-nowrap">(${g.gender})</span>` : ''}
                 </div>
-                <div class="text-xs text-neutral-400 font-mono mt-0.5 flex items-center gap-2">
-                  <span>${g.phone || "無電話"}</span>
-                  ${g.lineNickname ? `<span class="text-neutral-500">| 群暱稱: ${g.lineNickname}</span>` : ''}
+                <div class="text-xs text-neutral-400 font-mono mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span class="whitespace-nowrap">${g.phone || "無電話"}</span>
+                  ${g.lineNickname ? `<span class="text-neutral-500 whitespace-nowrap">| 群暱稱: ${g.lineNickname}</span>` : ''}
                 </div>
               </div>
               <div class="text-right whitespace-nowrap">
-                <span class="inline-block text-xs px-2.5 py-1 rounded-lg font-bold ${g.staff ? 'bg-red-950/60 border border-red-800/80 text-red-300' : 'bg-neutral-800 border border-neutral-700 text-neutral-400'}">
+                <span class="inline-block text-xs px-2.5 py-1 rounded-lg font-bold whitespace-nowrap ${g.staff ? 'bg-red-950/60 border border-red-800/80 text-red-300' : 'bg-neutral-800 border border-neutral-700 text-neutral-400'}">
                   ${g.staff ? `專員: ${g.staff}` : '未指派專員'}
                 </span>
               </div>
@@ -242,21 +250,21 @@
             <!-- 行程核心資訊 -->
             <div class="grid grid-cols-2 gap-2 text-xs">
               <div class="bg-neutral-950 p-2.5 rounded-xl border border-neutral-800/80">
-                <span class="text-neutral-500 block text-[11px]">抵達濟州</span>
-                <span class="text-emerald-400 font-bold font-mono block mt-0.5">${g.arrival ? g.arrival.replace('T', ' ') : '未定'}</span>
-                <span class="text-[10px] text-neutral-400 block">${g.airline || '無航班號'}</span>
+                <span class="text-neutral-500 block text-[11px] whitespace-nowrap">抵達濟州</span>
+                <span class="text-emerald-400 font-bold font-mono block mt-0.5 whitespace-nowrap">${g.arrival ? g.arrival.replace('T', ' ') : '未定'}</span>
+                <span class="text-[10px] text-neutral-400 block whitespace-nowrap">${g.airline || '無航班號'}</span>
               </div>
               <div class="bg-neutral-950 p-2.5 rounded-xl border border-neutral-800/80">
-                <span class="text-neutral-500 block text-[11px]">預計離開 (停留 ${g.stayDays || 5} 晚)</span>
-                <span class="text-neutral-300 font-mono block mt-0.5">${g.isDepartureUncertain ? '尚未確定' : (g.departure ? g.departure.replace('T', ' ') : '未定')}</span>
-                <span class="text-[10px] text-neutral-400 block">${g.returnAirline || '無航班號'}</span>
+                <span class="text-neutral-500 block text-[11px] whitespace-nowrap">預計離開 (停留 ${g.stayDays || 5} 晚)</span>
+                <span class="text-neutral-300 font-mono block mt-0.5 whitespace-nowrap">${g.isDepartureUncertain ? '尚未確定' : (g.departure ? g.departure.replace('T', ' ') : '未定')}</span>
+                <span class="text-[10px] text-neutral-400 block whitespace-nowrap">${g.returnAirline || '無航班號'}</span>
               </div>
             </div>
 
             <!-- 飯店與房號 -->
-            <div class="flex items-center justify-between text-xs px-1">
-              <span class="text-neutral-400">飯店/房號：<b class="text-neutral-200">${g.hotel || '濟州君悅'}</b> ${g.roomNo ? `<span class="text-amber-300 font-mono font-bold">(${g.roomNo} 房)</span>` : '<span class="text-neutral-600">(未排房)</span>'}</span>
-              <span class="text-[11px] ${isBound ? 'text-emerald-400 font-medium' : 'text-neutral-500'}">
+            <div class="flex items-center justify-between text-xs px-1 flex-wrap gap-1">
+              <span class="text-neutral-400 whitespace-nowrap">飯店/房號：<b class="text-neutral-200">${g.hotel || '濟州君悅'}</b> ${g.roomNo ? `<span class="text-amber-300 font-mono font-bold">(${g.roomNo} 房)</span>` : '<span class="text-neutral-600">(未排房)</span>'}</span>
+              <span class="text-[11px] whitespace-nowrap ${isBound ? 'text-emerald-400 font-medium' : 'text-neutral-500'}">
                 ${isBound ? '🟢 已綁定 LINE' : '⚪ 未綁定 LINE'}
               </span>
             </div>
@@ -265,22 +273,26 @@
             ${extensionNotice}
 
             <!-- 備註與下次回訪標籤 -->
-            ${g.note ? `<div class="bg-neutral-950/60 p-2 rounded-lg border border-neutral-800/60 text-xs text-neutral-300 break-words"><span class="text-neutral-500">備註：</span>${g.note}</div>` : ''}
+            ${g.note ? `<div class="bg-neutral-950/60 p-2.5 rounded-lg border border-neutral-800/60 text-xs text-neutral-300 break-words"><span class="text-neutral-500 font-semibold">備註：</span>${g.note}</div>` : ''}
             ${followUpBadge}
           </div>
 
           <!-- 操作按鈕列 -->
           <div class="pt-4 mt-3 border-t border-neutral-800/80 flex items-center justify-between gap-2">
-            <button onclick="openEditModal('${key}')" class="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-neutral-200 text-xs font-bold rounded-xl transition border border-neutral-700 text-center">
+            <button onclick="openEditModal('${key}')" class="flex-1 py-2 bg-neutral-800 hover:bg-neutral-700 active:scale-95 text-neutral-200 text-xs font-bold rounded-xl transition border border-neutral-700 text-center whitespace-nowrap">
               編輯 / 指派
             </button>
-            <button onclick="copyClaimLink('${key}')" class="flex-1 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-bold rounded-xl transition border border-red-900/40 text-center">
+            <button onclick="copyClaimLink('${key}')" class="flex-1 py-2 bg-red-950/40 hover:bg-red-900/60 text-red-300 text-xs font-bold rounded-xl transition border border-red-900/40 text-center whitespace-nowrap">
               📋 複製確認連結
             </button>
           </div>
         `;
         listContainer.appendChild(card);
       });
+
+      if (window.lucide) {
+        lucide.createIcons();
+      }
     }
 
     window.switchTab = (tab) => {
@@ -300,6 +312,11 @@
 
     window.handleFilterChange = () => {
       renderGuestList();
+    };
+
+    window.toggleSidebar = () => {
+      const sidebar = document.getElementById("mobileSidebar");
+      sidebar.classList.toggle("hidden");
     };
 
     window.copyClaimLink = (key) => {
@@ -323,7 +340,7 @@
       document.getElementById("editRoomNo").value = g.roomNo || "";
       document.getElementById("editStatus").value = g.status || "confirmed";
       document.getElementById("editClientType").value = g.clientType || "新客";
-      document.getElementById("editNextVisitDate").value = g.nextVisitDate || "";
+      document.getElementById("editNextVisitDate").value = g.nextVisitDate || ""; // 回訪時間讀取
       document.getElementById("editNote").value = g.note || "";
 
       document.getElementById("editModal").classList.remove("hidden");
@@ -350,7 +367,7 @@
         roomNo: roomNoVal,
         status: document.getElementById("editStatus").value,
         clientType: document.getElementById("editClientType").value,
-        nextVisitDate: nextVisitDateVal,
+        nextVisitDate: nextVisitDateVal, // 回訪時間儲存
         note: document.getElementById("editNote").value.trim(),
         updatedAt: Date.now()
       };
@@ -358,7 +375,6 @@
       try {
         await update(ref(db, `guests/${currentEditKey}`), updates);
 
-        // 若專員有變更且非空白，發送指派推播通知
         if (newStaff && newStaff !== oldStaff) {
           const g = rawGuests[currentEditKey];
           fetch(GAS_URL, {
@@ -485,61 +501,106 @@
       } catch (err) {
         alert("匯出失敗：" + err.message);
       } finally {
-        btn.innerText = "📊 匯出 Google Sheet";
+        btn.innerText = "📊 匯出 Sheet";
         btn.disabled = false;
       }
     };
+
+    window.addEventListener("DOMContentLoaded", () => {
+      if (window.lucide) lucide.createIcons();
+    });
   </script>
 </head>
 
-<body class="bg-neutral-950 text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white pb-16">
-  <!-- 頂部導航列 -->
-  <header class="bg-neutral-900/80 backdrop-blur-md border-b border-neutral-800 sticky top-0 z-30 px-4 sm:px-8 py-3.5 flex items-center justify-between">
-    <div class="flex items-center gap-2.5">
-      <div class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
-      <h1 class="text-base sm:text-lg font-black text-white tracking-tight">濟州貴賓禮賓管理系統</h1>
+<body class="bg-[#0c0d0e] text-neutral-100 min-h-screen selection:bg-red-600 selection:text-white pb-16">
+  <!-- 頂部導航列 (包含漢堡選單與完整操作按鈕) -->
+  <header class="bg-[#121316]/90 backdrop-blur-md border-b border-neutral-800/80 sticky top-0 z-30 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-md">
+    <div class="flex items-center gap-3">
+      <!-- 漢堡選單按鈕 (手機版/快捷切換) -->
+      <button onclick="toggleSidebar()" class="p-1.5 rounded-lg bg-neutral-800/60 hover:bg-neutral-800 text-neutral-300 border border-neutral-700/60 transition focus:outline-none">
+        <i data-lucide="menu" class="w-5 h-5"></i>
+      </button>
+      <div class="flex items-center gap-2.5">
+        <div class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+        <h1 class="text-base sm:text-lg font-black text-white tracking-tight whitespace-nowrap">濟州貴賓禮賓管理系統</h1>
+      </div>
     </div>
+
+    <!-- 頂部快捷操作按鈕組 -->
     <div class="flex items-center gap-2 sm:gap-3">
-      <button onclick="openTaskModal()" class="text-xs bg-red-950/60 hover:bg-red-900/80 text-red-300 px-3 py-1.5 rounded-lg border border-red-800/80 transition font-semibold">
-        + 臨時派遣
+      <button onclick="openTaskModal()" class="text-xs bg-red-950/60 hover:bg-red-900/80 text-red-300 px-3 py-1.5 rounded-lg border border-red-800/80 transition font-semibold flex items-center gap-1.5 whitespace-nowrap">
+        <i data-lucide="send" class="w-3.5 h-3.5"></i>
+        <span>+ 臨時派遣</span>
       </button>
-      <button id="exportBtn" onclick="exportToSpreadsheet()" class="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-3 py-1.5 rounded-lg border border-neutral-700 transition font-semibold">
-        📊 匯出 Sheet
+      <button id="exportBtn" onclick="exportToSpreadsheet()" class="text-xs bg-neutral-800 hover:bg-neutral-700 text-neutral-200 px-3 py-1.5 rounded-lg border border-neutral-700 transition font-semibold flex items-center gap-1.5 whitespace-nowrap">
+        <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span>📊 匯出 Sheet</span>
       </button>
-      <a href="index.html" target="_blank" class="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg transition font-semibold shadow-md shadow-red-950">
-        + 預約表單
+      <a href="index.html" target="_blank" class="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg transition font-semibold shadow-md shadow-red-950 flex items-center gap-1 whitespace-nowrap">
+        <span>+ 預約表單</span>
       </a>
     </div>
   </header>
 
+  <!-- 漢堡選單彈出式抽屜 (Mobile / Drawer) -->
+  <div id="mobileSidebar" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex justify-start">
+    <div class="bg-[#121316] w-64 h-full border-r border-neutral-800 p-5 space-y-6 flex flex-col justify-between shadow-2xl">
+      <div class="space-y-4">
+        <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
+          <span class="text-xs font-black text-neutral-400 uppercase tracking-wider">功能選單</span>
+          <button onclick="toggleSidebar()" class="p-1 rounded text-neutral-400 hover:text-white">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+        <nav class="space-y-1 text-xs font-semibold">
+          <button onclick="switchTab('active'); toggleSidebar();" class="w-full text-left px-3 py-2.5 rounded-xl text-neutral-300 hover:bg-neutral-800/80 transition flex items-center gap-2.5">
+            <i data-lucide="users" class="w-4 h-4 text-emerald-400"></i>
+            <span>進行中貴賓名冊</span>
+          </button>
+          <button onclick="switchTab('followup'); toggleSidebar();" class="w-full text-left px-3 py-2.5 rounded-xl text-neutral-300 hover:bg-neutral-800/80 transition flex items-center gap-2.5">
+            <i data-lucide="calendar-clock" class="w-4 h-4 text-amber-400"></i>
+            <span>回訪追蹤 (14天內)</span>
+          </button>
+          <button onclick="switchTab('completed'); toggleSidebar();" class="w-full text-left px-3 py-2.5 rounded-xl text-neutral-300 hover:bg-neutral-800/80 transition flex items-center gap-2.5">
+            <i data-lucide="check-circle" class="w-4 h-4 text-neutral-400"></i>
+            <span>已結案 / 已退房名冊</span>
+          </button>
+        </nav>
+      </div>
+      <div class="pt-4 border-t border-neutral-800 text-[11px] text-neutral-500 text-center font-mono">
+        濟州島禮賓管理後台 v2.4
+      </div>
+    </div>
+  </div>
+
   <main class="max-w-7xl mx-auto px-4 sm:px-8 pt-6 space-y-6">
     <!-- 數據概覽看板 -->
     <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-lg">
-        <span class="text-xs font-semibold text-neutral-400 block">總登記預約</span>
+      <div class="bg-[#141518] border border-neutral-800/80 rounded-2xl p-4 shadow-lg">
+        <span class="text-xs font-semibold text-neutral-400 block whitespace-nowrap">總登記預約</span>
         <span id="statTotal" class="text-2xl sm:text-3xl font-black text-white font-mono mt-1 block">-</span>
       </div>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-lg">
-        <span class="text-xs font-semibold text-emerald-400 block">進行中 / 在島行程</span>
+      <div class="bg-[#141518] border border-neutral-800/80 rounded-2xl p-4 shadow-lg">
+        <span class="text-xs font-semibold text-emerald-400 block whitespace-nowrap">進行中 / 在島行程</span>
         <span id="statActive" class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono mt-1 block">-</span>
       </div>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-lg">
-        <span class="text-xs font-semibold text-rose-400 block">待指派專員</span>
+      <div class="bg-[#141518] border border-neutral-800/80 rounded-2xl p-4 shadow-lg">
+        <span class="text-xs font-semibold text-rose-400 block whitespace-nowrap">待指派專員</span>
         <span id="statPending" class="text-2xl sm:text-3xl font-black text-rose-400 font-mono mt-1 block">-</span>
       </div>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-lg">
-        <span class="text-xs font-semibold text-amber-400 block">房務續訂警戒</span>
+      <div class="bg-[#141518] border border-neutral-800/80 rounded-2xl p-4 shadow-lg">
+        <span class="text-xs font-semibold text-amber-400 block whitespace-nowrap">房務續訂警戒</span>
         <span id="statUrgent" class="text-2xl sm:text-3xl font-black text-amber-400 font-mono mt-1 block">-</span>
       </div>
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 shadow-lg">
-        <span class="text-xs font-semibold text-indigo-400 block">14天次回訪提醒</span>
+      <div class="bg-[#141518] border border-neutral-800/80 rounded-2xl p-4 shadow-lg">
+        <span class="text-xs font-semibold text-indigo-400 block whitespace-nowrap">14天次回訪提醒</span>
         <span id="statFollowUp" class="text-2xl sm:text-3xl font-black text-indigo-400 font-mono mt-1 block">-</span>
       </div>
     </div>
 
     <!-- 篩選與搜尋列 -->
-    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg">
-      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 border-b sm:border-b-0 border-neutral-800">
+    <div class="bg-[#141518] border border-neutral-800/80 rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 shadow-lg">
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 border-b sm:border-b-0 border-neutral-800/60">
         <button id="tab-active" onclick="switchTab('active')" class="tab-btn px-4 py-2 rounded-xl text-xs font-bold transition border border-red-500 bg-red-950/30 text-red-400 whitespace-nowrap">
           進行中貴賓
         </button>
@@ -552,7 +613,7 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <select id="staffFilter" onchange="handleFilterChange()" class="bg-neutral-950 border border-neutral-800 text-xs text-neutral-300 px-3 py-2 rounded-xl outline-none focus:border-red-500">
+        <select id="staffFilter" onchange="handleFilterChange()" class="bg-neutral-950 border border-neutral-800 text-xs text-neutral-300 px-3 py-2 rounded-xl outline-none focus:border-red-500 whitespace-nowrap">
           <option value="ALL">全部專員</option>
         </select>
         <input oninput="handleSearch(this.value)" placeholder="搜尋姓名 / 電話 / 房號..." class="bg-neutral-950 border border-neutral-800 text-xs text-neutral-100 placeholder:text-neutral-600 px-3.5 py-2 rounded-xl outline-none focus:border-red-500 w-full sm:w-56" />
@@ -565,31 +626,31 @@
 
   <!-- 編輯 / 指派專員 彈出視窗 -->
   <div id="editModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-    <div class="bg-neutral-900 border border-neutral-800 w-full max-w-lg rounded-2xl shadow-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div class="bg-[#141518] border border-neutral-800 w-full max-w-lg rounded-2xl shadow-2xl p-5 sm:p-6 space-y-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <h3 class="text-base font-black text-white">編輯貴賓行程資料</h3>
+        <h3 class="text-base font-black text-white whitespace-nowrap">編輯貴賓行程資料</h3>
         <button onclick="closeEditModal()" class="text-neutral-400 hover:text-white text-sm font-bold">✕</button>
       </div>
 
       <div class="space-y-3 text-xs">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">客戶姓名</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">客戶姓名</label>
             <input id="editName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">聯絡電話</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">聯絡電話</label>
             <input id="editPhone" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500" />
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">指派專員</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">指派專員</label>
             <select id="editStaff" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500"></select>
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">客戶等級</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">客戶等級</label>
             <select id="editClientType" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500">
               <option value="新客">新客</option>
               <option value="常客">常客</option>
@@ -600,25 +661,25 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">入住飯店</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">入住飯店</label>
             <input id="editHotel" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">房號</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">房號</label>
             <input id="editRoomNo" placeholder="例：1208" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500" />
           </div>
         </div>
 
-        <!-- 預計下次回訪時間 -->
+        <!-- 預計下次回訪時間 (新增) -->
         <div class="bg-amber-950/20 border border-amber-900/40 rounded-xl p-3 space-y-1">
-          <label class="block text-amber-300 font-bold">🗓 預計下次回訪時間 (14天前自動推播提醒)</label>
+          <label class="block text-amber-300 font-bold whitespace-nowrap">🗓 預計下次回訪時間 (14天前自動推播提醒)</label>
           <input id="editNextVisitDate" type="date" class="w-full px-3 py-2 bg-neutral-950 border border-amber-800/60 rounded-xl text-white outline-none focus:border-amber-500 text-xs" />
           <p class="text-[10px] text-neutral-400">設定後，系統將於該日期的 14 天前夜間排程自動發送推播給專員。</p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-neutral-400 mb-1 font-semibold">行程狀態</label>
+            <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">行程狀態</label>
             <select id="editStatus" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500">
               <option value="pending">待處理</option>
               <option value="confirmed">已確認 / 接待中</option>
@@ -629,20 +690,20 @@
         </div>
 
         <div>
-          <label class="block text-neutral-400 mb-1 font-semibold">需求與備註</label>
+          <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">需求與備註</label>
           <textarea id="editNote" rows="2" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500"></textarea>
         </div>
       </div>
 
       <div class="pt-3 border-t border-neutral-800 flex items-center justify-between gap-2">
-        <button onclick="deleteGuest()" class="text-rose-400 hover:bg-rose-950/40 px-3 py-2 rounded-xl text-xs font-bold transition">
+        <button onclick="deleteGuest()" class="text-rose-400 hover:bg-rose-950/40 px-3 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap">
           刪除行程
         </button>
         <div class="flex items-center gap-2">
-          <button onclick="closeEditModal()" class="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold hover:bg-neutral-700 transition">
+          <button onclick="closeEditModal()" class="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold hover:bg-neutral-700 transition whitespace-nowrap">
             取消
           </button>
-          <button onclick="saveGuestEdit()" class="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-red-950">
+          <button onclick="saveGuestEdit()" class="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-red-950 whitespace-nowrap">
             儲存變更
           </button>
         </div>
@@ -652,34 +713,34 @@
 
   <!-- 臨時派遣任務指派 彈出視窗 -->
   <div id="taskModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-    <div class="bg-neutral-900 border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl p-5 sm:p-6 space-y-4">
+    <div class="bg-[#141518] border border-neutral-800 w-full max-w-md rounded-2xl shadow-2xl p-5 sm:p-6 space-y-4">
       <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <h3 class="text-base font-black text-white">指派臨時任務</h3>
+        <h3 class="text-base font-black text-white whitespace-nowrap">指派臨時任務</h3>
         <button onclick="closeTaskModal()" class="text-neutral-400 hover:text-white text-sm font-bold">✕</button>
       </div>
 
       <form id="taskForm" onsubmit="event.preventDefault(); sendExtraTask();" class="space-y-3 text-xs">
         <div>
-          <label class="block text-neutral-400 mb-1 font-semibold">負責專員 *</label>
+          <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">負責專員 *</label>
           <select id="taskStaff" required class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500"></select>
         </div>
         <div>
-          <label class="block text-neutral-400 mb-1 font-semibold">任務標題 *</label>
+          <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">任務標題 *</label>
           <input id="taskContent" required placeholder="例如：機場接機加派專車、協助送件" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
         </div>
         <div>
-          <label class="block text-neutral-400 mb-1 font-semibold">截止時間</label>
+          <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">截止時間</label>
           <input id="taskDeadline" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500" />
         </div>
         <div>
-          <label class="block text-neutral-400 mb-1 font-semibold">任務說明</label>
+          <label class="block text-neutral-400 mb-1 font-semibold whitespace-nowrap">任務說明</label>
           <textarea id="taskDesc" rows="3" placeholder="請填寫具體任務內容與注意事項..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500"></textarea>
         </div>
         <div class="pt-3 border-t border-neutral-800 flex items-center justify-end gap-2">
-          <button type="button" onclick="closeTaskModal()" class="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold hover:bg-neutral-700 transition">
+          <button type="button" onclick="closeTaskModal()" class="px-4 py-2 bg-neutral-800 text-neutral-300 rounded-xl text-xs font-bold hover:bg-neutral-700 transition whitespace-nowrap">
             取消
           </button>
-          <button id="taskSubmitBtn" type="submit" class="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-red-950">
+          <button id="taskSubmitBtn" type="submit" class="px-5 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-bold transition shadow-lg shadow-red-950 whitespace-nowrap">
             確認指派任務
           </button>
         </div>
