@@ -3,13 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>濟州島行程資料登記</title>
+  <title>濟州島貴賓專屬行程系統</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- LINE LIFF SDK -->
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, push, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { getDatabase, ref, push, update, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
@@ -27,12 +29,32 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    // 請替換為您的 LIFF ID
+    const LIFF_ID = "YOUR_LIFF_ID_HERE"; 
+    let currentLineUserId = "";
+
+    async function initLiff() {
+      try {
+        if (typeof liff !== "undefined" && LIFF_ID && LIFF_ID !== "YOUR_LIFF_ID_HERE") {
+          await liff.init({ liffId: LIFF_ID });
+          if (liff.isLoggedIn()) {
+            const profile = await liff.getProfile();
+            currentLineUserId = profile.userId || "";
+          }
+        }
+      } catch (err) {
+        console.warn("LIFF 初始化或讀取 UID 略過:", err);
+      }
+    }
+
     const form = document.getElementById("guestForm");
     const formContainer = document.getElementById("formContainer");
     const successContainer = document.getElementById("successContainer");
+    const confirmContainer = document.getElementById("confirmContainer");
     const submitBtn = document.getElementById("submitBtn");
     
     const nameInput = document.getElementById("name");
+    const phoneInput = document.getElementById("phone");
     const englishNameInput = document.getElementById("englishName");
     const passportInput = document.getElementById("passport");
     const nationalIdInput = document.getElementById("nationalId");
@@ -58,9 +80,11 @@
     const imageThumb = document.getElementById("imageThumb");
 
     let compressedPassportImageBase64 = "";
-
     let lastSubmittedGuestId = null;
     let lastSubmittedDeparture = null;
+
+    let targetGuestData = null;
+    let targetGuestId = null;
 
     let worker = null;
     async function initWorker() {
@@ -74,6 +98,114 @@
       return worker;
     }
     initWorker();
+
+    function maskPhone(p) {
+      if (!p) return "未填寫";
+      if (p.length < 6) return p;
+      return p.substring(0, 4) + "****" + p.substring(p.length - 3);
+    }
+
+    async function checkUrlParams() {
+      await initLiff();
+      const params = new URLSearchParams(window.location.search);
+      const gid = params.get("guestId");
+
+      if (gid) {
+        targetGuestId = gid;
+        try {
+          const snapshot = await get(ref(db, `guests/${gid}`));
+          if (snapshot.exists()) {
+            targetGuestData = snapshot.val();
+            renderConfirmView(targetGuestData);
+            return;
+          }
+        } catch (err) {
+          console.error("讀取客戶資料失敗", err);
+        }
+      }
+      formContainer.classList.remove("hidden");
+    }
+
+    function renderConfirmView(g) {
+      formContainer.classList.add("hidden");
+      successContainer.classList.add("hidden");
+      confirmContainer.classList.remove("hidden");
+
+      document.getElementById("confName").innerText = g.name || "-";
+      document.getElementById("confPhone").innerText = maskPhone(g.phone);
+      document.getElementById("confHotel").innerText = g.hotel || "濟州君悅";
+      document.getElementById("confStaff").innerText = g.staff || "專屬禮賓接待員";
+      document.getElementById("confArrivalAirline").innerText = g.airline || "-";
+      document.getElementById("confArrival").innerText = g.arrival ? g.arrival.replace("T", " ") : "-";
+      
+      const isUncertain = !!g.isDepartureUncertain;
+      document.getElementById("confReturnAirline").innerText = isUncertain ? "尚未確定" : (g.returnAirline || "-");
+      document.getElementById("confDeparture").innerText = isUncertain ? "尚未確定 (暫定5晚)" : (g.departure ? g.departure.replace("T", " ") : "-");
+
+      if (g.lineUserId) {
+        document.getElementById("claimSection").classList.add("hidden");
+        document.getElementById("claimedNotice").classList.remove("hidden");
+      } else {
+        document.getElementById("claimSection").classList.remove("hidden");
+        document.getElementById("claimedNotice").classList.add("hidden");
+      }
+    }
+
+    window.submitClaimAndConfirm = async () => {
+      const inputLast3 = document.getElementById("claimPhoneLast3").value.trim();
+      const errEl = document.getElementById("claimError");
+      const btn = document.getElementById("claimConfirmBtn");
+
+      if (!inputLast3 || inputLast3.length !== 3) {
+        errEl.textContent = "請輸入手機號碼末 3 碼";
+        errEl.classList.remove("hidden");
+        return;
+      }
+
+      const realPhone = (targetGuestData.phone || "").replace(/[^0-9]/g, "");
+      const realLast3 = realPhone.slice(-3);
+
+      if (realPhone.length >= 3 && realLast3 !== inputLast3) {
+        errEl.textContent = "手機末 3 碼核對不符，請重新確認";
+        errEl.classList.remove("hidden");
+        return;
+      }
+
+      btn.innerText = "驗證核對中...";
+      btn.disabled = true;
+
+      try {
+        const checkSnap = await get(ref(db, `guests/${targetGuestId}`));
+        const currentData = checkSnap.val();
+        if (currentData.lineUserId && currentData.lineUserId !== currentLineUserId) {
+          alert("此行程已由其他 LINE 帳號完成認領綁定！");
+          location.reload();
+          return;
+        }
+
+        const auditLogs = currentData.auditLogs || [];
+        auditLogs.unshift({
+          time: Date.now(),
+          msg: `客戶已由 LINE 核對行程並完成身分認領綁定 (末3碼: ${inputLast3})`
+        });
+
+        await update(ref(db, `guests/${targetGuestId}`), {
+          lineUserId: currentLineUserId || "BOUND_USER",
+          isClaimed: true,
+          claimedAt: Date.now(),
+          auditLogs: auditLogs
+        });
+
+        document.getElementById("claimSection").classList.add("hidden");
+        document.getElementById("claimedSuccessNotice").classList.remove("hidden");
+      } catch (err) {
+        errEl.textContent = "認領綁定失敗：" + err.message;
+        errEl.classList.remove("hidden");
+      } finally {
+        btn.innerText = "確認行程並綁定 LINE";
+        btn.disabled = false;
+      }
+    };
 
     function compressImageForStorage(file) {
       return new Promise((resolve) => {
@@ -367,6 +499,7 @@
 
       const guestPayload = {
         name: nameInput.value.trim(),
+        phone: phoneInput.value.trim(),
         englishName: englishNameInput.value.trim(),
         referrer: referrerInput.value.trim(),
         passport: passportVal,
@@ -389,6 +522,8 @@
         roomExtendedCount: 0,
         status: "pending",
         housekeepingStatus: "normal",
+        lineUserId: currentLineUserId || "",
+        isClaimed: !!currentLineUserId,
         createdAt: Date.now()
       };
 
@@ -407,7 +542,7 @@
         lastSubmittedGuestId = targetId;
         lastSubmittedDeparture = depValue;
 
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbzSY3vAlbSsiXjPpzb3noeQ5F9s7ilE1r7QKC87a5MN5UYtRzqaCwxxobHRPrKM6nKQ/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxK3HWHBJQsTUhXUNh4bd1f48XWUUUxpHEDEotJZk_SttvwrMiTBHnnaQuPwMwX718m/exec";
 
         fetch(GAS_URL, {
           method: "POST",
@@ -415,7 +550,9 @@
             "Content-Type": "text/plain;charset=utf-8"
           },
           body: JSON.stringify({
+            action: "guest_submit",
             name: nameInput.value.trim(),
+            phone: phoneInput.value.trim(),
             clientType: "新客",
             arrival: arrivalInput.value,
             stayDays: stayDaysCount,
@@ -454,6 +591,8 @@
       formContainer.classList.remove("hidden");
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
+
+    checkUrlParams();
   </script>
   <style>
     input[type="datetime-local"],
@@ -476,7 +615,8 @@
     
     <div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-600 via-rose-500 to-red-600"></div>
 
-    <div id="formContainer" class="space-y-4">
+    <!-- 模式 A：一般登記表單 -->
+    <div id="formContainer" class="hidden space-y-4">
       <div class="border-b border-neutral-800 pb-3">
         <div class="flex items-center gap-2">
           <span class="inline-block w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
@@ -512,6 +652,12 @@
         <div>
           <label class="block text-xs font-semibold text-neutral-300 mb-1">中文真實姓名 *</label>
           <input id="name" required placeholder="請填寫中文真實姓名（例：林美華）" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm text-neutral-100 placeholder:text-neutral-600 transition" />
+        </div>
+
+        <!-- 聯絡手機號碼 -->
+        <div>
+          <label class="block text-xs font-semibold text-neutral-300 mb-1">聯絡手機號碼 * <span class="text-[10px] text-neutral-500">(認領與身分核對防呆)</span></label>
+          <input id="phone" required type="tel" placeholder="例：0912345678" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono placeholder:text-neutral-600 text-neutral-100 transition" />
         </div>
 
         <!-- 護照英文姓名 -->
@@ -611,6 +757,88 @@
           確認送出資料
         </button>
       </form>
+    </div>
+
+    <!-- 模式 B：專屬行程確認卡與 LINE 身分認領核對頁面 -->
+    <div id="confirmContainer" class="hidden space-y-4">
+      <div class="border-b border-neutral-800 pb-3 text-center">
+        <div class="w-12 h-12 bg-red-950/80 border border-red-800/80 text-red-400 rounded-2xl flex items-center justify-center mx-auto text-lg font-black shadow-lg shadow-red-950 mb-2">
+          ✈
+        </div>
+        <h2 class="text-lg font-black text-white tracking-tight">濟州專屬行程確認卡</h2>
+        <p class="text-[11px] text-neutral-400 mt-1">請核對您的行程資料，核對無誤後請輸入手機末3碼完成綁定</p>
+      </div>
+
+      <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-2 border-b border-neutral-800/80 pb-2.5">
+          <div>
+            <span class="text-neutral-500 block">貴賓姓名</span>
+            <span id="confName" class="text-white font-bold text-sm"></span>
+          </div>
+          <div>
+            <span class="text-neutral-500 block">聯絡電話</span>
+            <span id="confPhone" class="text-neutral-300 font-mono font-medium"></span>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 border-b border-neutral-800/80 pb-2.5">
+          <div>
+            <span class="text-neutral-500 block">入住飯店</span>
+            <span id="confHotel" class="text-amber-300 font-bold"></span>
+          </div>
+          <div>
+            <span class="text-neutral-500 block">接待專員</span>
+            <span id="confStaff" class="text-white font-medium"></span>
+          </div>
+        </div>
+
+        <div class="space-y-2 border-b border-neutral-800/80 pb-2.5">
+          <div class="flex justify-between">
+            <span class="text-neutral-500">抵達航班:</span>
+            <span id="confArrivalAirline" class="text-neutral-200 font-mono font-bold"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-neutral-500">預計抵達時間:</span>
+            <span id="confArrival" class="text-emerald-400 font-mono font-bold"></span>
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex justify-between">
+            <span class="text-neutral-500">回程航班:</span>
+            <span id="confReturnAirline" class="text-neutral-200 font-mono font-bold"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-neutral-500">預計離開時間:</span>
+            <span id="confDeparture" class="text-neutral-300 font-mono"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 尚未認領：輸入手機末 3 碼確認 -->
+      <div id="claimSection" class="space-y-3 pt-1">
+        <div class="bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-2">
+          <label class="block text-xs font-bold text-red-400">防呆驗證：請輸入此行程之手機號碼末 3 碼 *</label>
+          <input id="claimPhoneLast3" maxlength="3" type="tel" placeholder="例如：678" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-red-900/60 rounded-xl outline-none focus:border-red-500 text-center text-lg font-mono font-bold tracking-widest text-white transition" />
+          <p id="claimError" class="hidden text-xs text-red-400 text-center font-medium"></p>
+        </div>
+
+        <button id="claimConfirmBtn" onclick="submitClaimAndConfirm()" class="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-red-950/60 text-xs">
+          確認行程並綁定 LINE
+        </button>
+      </div>
+
+      <!-- 已認領提示 -->
+      <div id="claimedNotice" class="hidden bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-center space-y-1">
+        <div class="text-emerald-400 font-bold text-xs">✓ 此行程已由貴賓完成核對與 LINE 帳號綁定</div>
+        <p class="text-[11px] text-neutral-500">如有行程調整需求，請直接於 LINE 官方帳號與專員聯繫。</p>
+      </div>
+
+      <!-- 剛完成認領成功提示 -->
+      <div id="claimedSuccessNotice" class="hidden bg-emerald-950/40 border border-emerald-800/80 rounded-xl p-4 text-center space-y-1">
+        <div class="text-emerald-400 font-black text-sm">🎉 行程核對完成！已成功綁定 LINE</div>
+        <p class="text-[11px] text-neutral-300 leading-relaxed">接待團隊已同步接獲您的行程核對通知，祝您濟州島旅途愉快！</p>
+      </div>
     </div>
 
     <!-- 送出成功畫面 -->
