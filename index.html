@@ -9,7 +9,7 @@
   
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, push } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    import { getDatabase, ref, push, update } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
     const k1 = "AIzaSyChnQOp6dz";
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
@@ -59,7 +59,9 @@
 
     let compressedPassportImageBase64 = "";
 
-    // 1. 初始化 MRZ Worker
+    let lastSubmittedGuestId = null;
+    let lastSubmittedDeparture = null;
+
     let worker = null;
     async function initWorker() {
       if (!worker) {
@@ -73,7 +75,6 @@
     }
     initWorker();
 
-    // 強效輕量壓縮（寬度最大 800px、品質 0.55）
     function compressImageForStorage(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -111,7 +112,6 @@
       });
     }
 
-    // OCR 專用二值化局部裁切
     function preprocessPassportMRZ(file) {
       return new Promise((resolve) => {
         const reader = new FileReader();
@@ -348,7 +348,7 @@
 
       let isUncertain = departureUncertain.checked;
       let depValue = isUncertain ? "" : departureInput.value;
-      let stayDaysCount = isUncertain ? 5 : 1;
+      let stayDaysCount = 5;
 
       if (!isUncertain && depValue && arrivalInput.value) {
         const arrDate = new Date(arrivalInput.value);
@@ -359,40 +359,54 @@
           return departureInput.focus();
         }
         stayDaysCount = Math.ceil(Math.abs(depDate - arrDate) / (1000 * 60 * 60 * 24)) || 1;
+        if (arrDate.getHours() < 5) stayDaysCount += 1;
       }
 
       submitBtn.innerText = "資料送出中...";
       submitBtn.disabled = true;
 
-      try {
-        await push(ref(db, "guests"), {
-          name: nameInput.value.trim(),
-          englishName: englishNameInput.value.trim(),
-          referrer: referrerInput.value.trim(),
-          passport: passportVal,
-          nationalId: nationalIdInput.value.trim(),
-          birthday: birthdayInput.value,
-          gender: genderSelect.value,
-          lineNickname: lineNicknameInput.value.trim(),
-          airline: airlineInput.value.trim(),
-          arrival: arrivalInput.value,
-          returnAirline: isUncertain ? "" : returnAirlineInput.value.trim(),
-          departure: depValue,
-          isDepartureUncertain: isUncertain,
-          stayDays: stayDaysCount,
-          note: noteInput.value.trim(),
-          passportImage: compressedPassportImageBase64 || "",
-          points: 0,
-          staff: "",
-          hotel: "濟州君悅",
-          roomNo: "",
-          roomExtendedCount: 0,
-          status: "pending",
-          housekeepingStatus: "normal",
-          createdAt: Date.now()
-        });
+      const guestPayload = {
+        name: nameInput.value.trim(),
+        englishName: englishNameInput.value.trim(),
+        referrer: referrerInput.value.trim(),
+        passport: passportVal,
+        nationalId: nationalIdInput.value.trim(),
+        birthday: birthdayInput.value,
+        gender: genderSelect.value,
+        lineNickname: lineNicknameInput.value.trim(),
+        airline: airlineInput.value.trim(),
+        arrival: arrivalInput.value,
+        returnAirline: isUncertain ? "" : returnAirlineInput.value.trim(),
+        departure: depValue,
+        isDepartureUncertain: isUncertain,
+        stayDays: stayDaysCount,
+        note: noteInput.value.trim(),
+        passportImage: compressedPassportImageBase64 || "",
+        points: 0,
+        staff: "",
+        hotel: "濟州君悅",
+        roomNo: "",
+        roomExtendedCount: 0,
+        status: "pending",
+        housekeepingStatus: "normal",
+        createdAt: Date.now()
+      };
 
-        // 呼叫 GAS 轉發通知至 LINE 員工群組
+      try {
+        let targetId = null;
+        const isSameDepartureAsBefore = (lastSubmittedGuestId && lastSubmittedDeparture === depValue);
+
+        if (isSameDepartureAsBefore) {
+          targetId = lastSubmittedGuestId;
+          await update(ref(db, `guests/${targetId}`), guestPayload);
+        } else {
+          const newRef = await push(ref(db, "guests"), guestPayload);
+          targetId = newRef.key;
+        }
+
+        lastSubmittedGuestId = targetId;
+        lastSubmittedDeparture = depValue;
+
         const GAS_URL = "https://script.google.com/macros/s/AKfycbzSY3vAlbSsiXjPpzb3noeQ5F9s7ilE1r7QKC87a5MN5UYtRzqaCwxxobHRPrKM6nKQ/exec";
 
         fetch(GAS_URL, {
@@ -433,6 +447,8 @@
         departureInput.required = true;
         returnBlock.classList.remove("opacity-40", "pointer-events-none");
         departureBlock.classList.remove("opacity-40", "pointer-events-none");
+        lastSubmittedGuestId = null;
+        lastSubmittedDeparture = null;
       }
       successContainer.classList.add("hidden");
       formContainer.classList.remove("hidden");
