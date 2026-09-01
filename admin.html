@@ -578,6 +578,13 @@
       return str.substring(0, visibleChars) + '****';
     }
 
+    function maskPhoneString(str) {
+      if (!str) return '-';
+      const clean = str.replace(/[^0-9]/g, '');
+      if (clean.length < 6) return str;
+      return clean.substring(0, 4) + '****' + clean.substring(clean.length - 3);
+    }
+
     function formatFlightWithAirline(flightNo) {
       if (!flightNo) return '-';
       const clean = flightNo.trim().toUpperCase();
@@ -984,6 +991,7 @@
       filtered = filtered.filter(g => {
         return (g.name || "").toLowerCase().includes(searchVal) ||
                (g.englishName || "").toLowerCase().includes(searchVal) ||
+               (g.phone || "").toLowerCase().includes(searchVal) ||
                (g.memberId || "").toLowerCase().includes(searchVal) ||
                (g.hotel || "").toLowerCase().includes(searchVal) ||
                (g.roomNo || "").toLowerCase().includes(searchVal) ||
@@ -991,6 +999,7 @@
                (g.passport || "").toLowerCase().includes(searchVal) ||
                (g.nationalId || "").toLowerCase().includes(searchVal) ||
                (g.lineNickname || "").toLowerCase().includes(searchVal) ||
+               (g.lineUserId || "").toLowerCase().includes(searchVal) ||
                (g.airline || "").toLowerCase().includes(searchVal) ||
                (g.returnAirline || "").toLowerCase().includes(searchVal) ||
                (g.staff || "").toLowerCase().includes(searchVal) ||
@@ -1015,10 +1024,19 @@
       return filtered;
     }
 
+    window.copyGuestConfirmUrl = (guestId, guestName) => {
+      const baseUrl = window.location.href.split('?')[0].replace('admin.html', 'index.html');
+      const confirmUrl = `${baseUrl}?guestId=${guestId}`;
+      navigator.clipboard.writeText(confirmUrl).then(() => {
+        alert(`已複製【${guestName}】的專屬行程確認/認領連結至剪貼簿！\n\n專員可直接透過 LINE 傳送給該客戶核對並完成綁定。`);
+      });
+    };
+
     function renderSingleGuestCard(g, profileMap, fullGuestList) {
       const isUnmasked = unmaskedIds.has(g.id);
       const passText = isUnmasked ? (g.passport || '-') : maskString(g.passport, 4);
       const idText = isUnmasked ? (g.nationalId || '-') : maskString(g.nationalId, 3);
+      const phoneText = isUnmasked ? (g.phone || '-') : maskPhoneString(g.phone);
       const eyeIcon = isUnmasked 
         ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
         : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
@@ -1086,6 +1104,10 @@
         ? `<span class="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs font-bold whitespace-nowrap">專員: ${g.staff}</span>`
         : `<span class="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-500 text-xs font-medium whitespace-nowrap">專員: 未指派</span>`;
 
+      const lineStatusBadge = g.lineUserId
+        ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-300 text-[10px] font-bold flex items-center gap-1 whitespace-nowrap" title="UID: ${g.lineUserId}">🟢 已綁定 LINE</span>`
+        : `<button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="px-2 py-0.5 rounded bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 whitespace-nowrap" title="點擊複製行程核對與身分綁定連結">📋 複製確認連結</button>`;
+
       return `
         <div class="bg-[#121212] border border-neutral-800/90 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl hover:border-neutral-700 transition">
           
@@ -1095,6 +1117,7 @@
                 <span class="text-lg font-black text-white tracking-tight">${g.name || '未填寫'}</span>
                 <span class="text-xs text-neutral-400 font-mono font-medium">(${g.englishName || '-'})</span>
                 ${staffDisplay}
+                ${lineStatusBadge}
                 ${clientTypeTag}
                 ${blacklistBadge}
                 ${duplicateAlertBtn}
@@ -1129,7 +1152,8 @@
                 </button>
               </div>
               <div class="text-[11px] text-neutral-500 font-mono">身分證: ${idText}</div>
-              <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
+              <div>聯絡手機: <span class="font-mono text-neutral-300 font-bold">${phoneText}</span></div>
+              <div>LINE 暱稱: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
               ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
               <div class="text-amber-400 font-mono font-medium">累積總積分: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(歷史: ${profile.closedHistoryPoints} + 本次: ${g.points || 0})</span></div>
             </div>
@@ -1153,6 +1177,9 @@
           <div class="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-xs">
             <div class="text-[11px] text-neutral-400">登錄時間: <span class="text-neutral-500">${g.createdAt ? new Date(g.createdAt).toLocaleDateString() : '-'}</span></div>
             <div class="flex items-center gap-2">
+              <button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-semibold transition whitespace-nowrap border border-neutral-700">
+                傳送行程確認卡
+              </button>
               <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold transition whitespace-nowrap">
                 歷史紀錄 / 預約行程
               </button>
@@ -1355,6 +1382,7 @@
           const g = p.mainGuest || {};
           return (g.name || "").toLowerCase().includes(searchVal) ||
                  (g.englishName || "").toLowerCase().includes(searchVal) ||
+                 (g.phone || "").toLowerCase().includes(searchVal) ||
                  (g.memberId || "").toLowerCase().includes(searchVal) ||
                  (g.hotel || "").toLowerCase().includes(searchVal) ||
                  (g.roomNo || "").toLowerCase().includes(searchVal) ||
@@ -1395,6 +1423,7 @@
         const isUnmasked = unmaskedIds.has(g.id);
         const passText = isUnmasked ? (g.passport || '-') : maskString(g.passport, 4);
         const idText = isUnmasked ? (g.nationalId || '-') : maskString(g.nationalId, 3);
+        const phoneText = isUnmasked ? (g.phone || '-') : maskPhoneString(g.phone);
         const eyeIcon = isUnmasked 
           ? `<svg class="w-3.5 h-3.5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"/></svg>`
           : `<svg class="w-3.5 h-3.5 text-neutral-400 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>`;
@@ -1445,6 +1474,7 @@
                   </button>
                 </div>
                 <div class="font-mono text-neutral-300">身分證: ${idText}</div>
+                <div>手機: <span class="font-mono text-neutral-300 font-bold">${phoneText}</span></div>
                 <div>LINE: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
                 ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
               </div>
@@ -1476,6 +1506,7 @@
       document.getElementById("editMemberId").value = g.memberId || "";
       document.getElementById("editReferrer").value = g.referrer || "";
       document.getElementById("editName").value = g.name || "";
+      document.getElementById("editPhone").value = g.phone || "";
       document.getElementById("editEnglishName").value = g.englishName || "";
       document.getElementById("editHotel").value = g.hotel || "濟州君悅";
       document.getElementById("editRoomNo").value = g.roomNo || "";
@@ -1484,6 +1515,7 @@
       document.getElementById("editBirthday").value = g.birthday || "";
       document.getElementById("editGender").value = g.gender || "M";
       document.getElementById("editLineNickname").value = g.lineNickname || "";
+      document.getElementById("editLineUserId").value = g.lineUserId || "";
       document.getElementById("editAirline").value = g.airline || "";
       document.getElementById("editArrival").value = g.arrival || "";
       document.getElementById("editReturnAirline").value = g.returnAirline || "";
@@ -1616,6 +1648,7 @@
       const g = allGuests[currentEditGuestId] || {};
 
       const name = document.getElementById("editName").value.trim();
+      const phone = document.getElementById("editPhone").value.trim();
       const englishName = document.getElementById("editEnglishName").value.trim().toUpperCase();
       const hotel = document.getElementById("editHotel").value.trim() || "濟州君悅";
       const roomNo = document.getElementById("editRoomNo").value.trim();
@@ -1624,6 +1657,7 @@
       const birthday = document.getElementById("editBirthday").value;
       const gender = document.getElementById("editGender").value;
       const lineNickname = document.getElementById("editLineNickname").value.trim();
+      const lineUserId = document.getElementById("editLineUserId").value.trim();
       const memberId = document.getElementById("editMemberId").value.trim().toUpperCase();
       const referrer = document.getElementById("editReferrer").value.trim();
       const airline = document.getElementById("editAirline").value.trim().toUpperCase();
@@ -1668,8 +1702,8 @@
 
       try {
         await update(ref(db, `guests/${currentEditGuestId}`), {
-          name, englishName, hotel, roomNo, passport, nationalId, birthday, gender,
-          lineNickname, memberId, referrer, airline, arrival,
+          name, phone, englishName, hotel, roomNo, passport, nationalId, birthday, gender,
+          lineNickname, lineUserId, memberId, referrer, airline, arrival,
           returnAirline, departure, isDepartureUncertain, stayDays,
           points, staff, status, isBlacklisted, blacklistReason, note, auditLogs
         });
@@ -1680,6 +1714,7 @@
             action: "assign_staff",
             staffName: staff,
             name: name || "貴賓",
+            phone: phone || "-",
             clientType: dynamicClientType,
             arrival: arrival,
             stayDays: stayDays,
@@ -1883,16 +1918,19 @@
       document.getElementById("mergeMatchReason").innerText = reason;
       document.getElementById("mergeMasterInfo").innerHTML = `
         <div>姓名: <b class="text-white">${g1.name}</b> (${g1.englishName || '-'})</div>
+        <div>電話: ${g1.phone || '-'}</div>
         <div>護照: ${g1.passport || '-'} | 身分證: ${g1.nationalId || '-'}</div>
         <div>飯店: ${g1.hotel || '君悅'} | 房號: ${g1.roomNo || '-'}</div>
       `;
       document.getElementById("mergeSecondaryInfo").innerHTML = `
         <div>姓名: <b class="text-amber-300">${g2.name}</b> (${g2.englishName || '-'})</div>
+        <div>電話: ${g2.phone || '-'}</div>
         <div>護照: ${g2.passport || '-'} | 身分證: ${g2.nationalId || '-'}</div>
         <div>飯店: ${g2.hotel || '君悅'} | 房號: ${g2.roomNo || '-'}</div>
       `;
 
       document.getElementById("mergeFormName").value = g1.name || g2.name || "";
+      document.getElementById("mergeFormPhone").value = g1.phone || g2.phone || "";
       document.getElementById("mergeFormEnglishName").value = g1.englishName || g2.englishName || "";
       document.getElementById("mergeFormPassport").value = g1.passport || g2.passport || "";
       document.getElementById("mergeFormNationalId").value = g1.nationalId || g2.nationalId || "";
@@ -1918,6 +1956,7 @@
       const g2 = allGuests[mergeSecondaryId];
 
       const mergedName = document.getElementById("mergeFormName").value.trim();
+      const mergedPhone = document.getElementById("mergeFormPhone").value.trim();
       const mergedEn = document.getElementById("mergeFormEnglishName").value.trim().toUpperCase();
       const mergedPass = document.getElementById("mergeFormPassport").value.trim().toUpperCase();
       const mergedId = formatNationalId(document.getElementById("mergeFormNationalId").value);
@@ -1934,11 +1973,13 @@
 
       await update(ref(db, `guests/${mergeMasterId}`), {
         name: mergedName,
+        phone: mergedPhone,
         englishName: mergedEn,
         passport: mergedPass,
         nationalId: mergedId,
         birthday: mergedBday,
         lineNickname: mergedLine,
+        lineUserId: g1.lineUserId || g2.lineUserId || "",
         referrer: mergedRef,
         note: mergedNote,
         passportImage: g1.passportImage || g2.passportImage || "",
@@ -2307,6 +2348,7 @@
         const missing = [];
         if (!g.passport || !g.passport.trim()) missing.push('護照號碼');
         if (!g.nationalId || !g.nationalId.trim()) missing.push('身分證');
+        if (!g.phone || !g.phone.trim()) missing.push('聯絡手機');
         if (!g.passportImage) missing.push('護照照片');
         if (!g.airline || !g.airline.trim()) missing.push('去程航班');
         if (!g.returnAirline || !g.returnAirline.trim() || g.returnAirline === '-' || g.isDepartureUncertain) missing.push('回程航班/時間');
@@ -2414,7 +2456,7 @@
         } else {
           incompleteBody.innerHTML = allActiveIncompleteList.slice(0, 15).map(g => `
             <tr class="text-xs border-b border-neutral-800/60 hover:bg-neutral-800/40">
-              <td class="py-2.5 px-3 font-bold text-white">${g.name || '-'} <span class="text-[10px] text-neutral-500 font-normal">(${g.lineNickname || '無LINE'})</span></td>
+              <td class="py-2.5 px-3 font-bold text-white">${g.name || '-'} <span class="text-[10px] text-neutral-500 font-normal">(${g.phone || '無電話'})</span></td>
               <td class="py-2.5 px-3 text-neutral-400 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
               <td class="py-2.5 px-3 text-red-400 font-medium">${g.missingText}</td>
               <td class="py-2.5 px-3 text-right">
@@ -2534,11 +2576,12 @@
         return {
           "姓名": g.name || '',
           "英文姓名": g.englishName || '',
+          "電話": g.phone || '',
           "入住飯店": g.hotel || '濟州君悅',
           "房號": g.roomNo || '',
           "護照號碼": g.passport || '',
           "身分證": g.nationalId || '',
-          "電話": g.phone || '',
+          "LINE UID": g.lineUserId || '',
           "航班": g.airline || '',
           "抵達時間": g.arrival ? g.arrival.replace('T', ' ') : '',
           "離開時間": stayInfo.departureDisplay,
@@ -2783,7 +2826,7 @@
     <div id="rosterView" class="space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-2.5 shadow-md">
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
-          <input id="searchInput" placeholder="搜尋姓名、護照、身分證、飯店、房號、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="searchInput" placeholder="搜尋姓名、電話、護照、身分證、飯店、房號、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
@@ -2824,7 +2867,7 @@
             <h3 class="text-xs font-bold text-white">所有貴賓客戶名冊</h3>
             <span class="text-[11px] text-neutral-400">(共篩選出 <b id="crmTotalCount" class="text-amber-400 font-mono">0</b> 位貴賓)</span>
           </div>
-          <input id="crmSearchInput" placeholder="搜尋姓名、護照、身分證、飯店、房號、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="crmSearchInput" placeholder="搜尋姓名、電話、護照、身分證、飯店、房號、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-center text-xs">
@@ -3036,7 +3079,7 @@
             <table class="w-full text-left">
               <thead>
                 <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
-                  <th class="py-2 px-3">姓名 (LINE)</th>
+                  <th class="py-2 px-3">姓名 (電話)</th>
                   <th class="py-2 px-3">抵達日</th>
                   <th class="py-2 px-3">缺漏項目</th>
                   <th class="py-2 px-3 text-right">操作</th>
@@ -3165,27 +3208,34 @@
             <input id="mergeFormName" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">護照英文姓名</label>
-            <input id="mergeFormEnglishName" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
+            <label class="block text-neutral-400 mb-1">聯絡手機</label>
+            <input id="mergeFormPhone" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
+            <label class="block text-neutral-400 mb-1">護照英文姓名</label>
+            <input id="mergeFormEnglishName" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
+          </div>
+          <div>
             <label class="block text-neutral-400 mb-1">護照號碼</label>
             <input id="mergeFormPassport" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
           </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <label class="block text-neutral-400 mb-1">身分證字號</label>
             <input id="mergeFormNationalId" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white uppercase outline-none focus:border-red-500 text-xs" />
           </div>
-        </div>
-
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <div>
             <label class="block text-neutral-400 mb-1">出生年月日</label>
             <input id="mergeFormBirthday" type="date" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
           </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
             <label class="block text-neutral-400 mb-1">LINE 暱稱</label>
             <input id="mergeFormLine" class="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-xl text-white outline-none focus:border-red-500 text-xs" />
@@ -3377,8 +3427,19 @@
             <input id="editName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
           </div>
           <div>
+            <label class="block text-neutral-400 mb-1">聯絡手機</label>
+            <input id="editPhone" placeholder="例：0912345678" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono outline-none focus:border-red-500 text-xs transition" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
             <label class="block text-neutral-400 mb-1">護照英文姓名</label>
             <input id="editEnglishName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-neutral-400 mb-1">LINE UserID (綁定碼)</label>
+            <input id="editLineUserId" placeholder="例如：U123456..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-300 font-mono outline-none focus:border-red-500 text-xs transition" />
           </div>
         </div>
 
