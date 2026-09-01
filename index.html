@@ -29,13 +29,12 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    // 請替換為您的 LIFF ID
-    const LIFF_ID = "YOUR_LIFF_ID_HERE"; 
+    const LIFF_ID = "2011368021-eRH4fnvP"; 
     let currentLineUserId = "";
 
     async function initLiff() {
       try {
-        if (typeof liff !== "undefined" && LIFF_ID && LIFF_ID !== "YOUR_LIFF_ID_HERE") {
+        if (typeof liff !== "undefined") {
           await liff.init({ liffId: LIFF_ID });
           if (liff.isLoggedIn()) {
             const profile = await liff.getProfile();
@@ -43,7 +42,7 @@
           }
         }
       } catch (err) {
-        console.warn("LIFF 初始化或讀取 UID 略過:", err);
+        console.warn("LIFF 初始化略過:", err);
       }
     }
 
