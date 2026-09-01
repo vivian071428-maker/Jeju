@@ -1491,6 +1491,9 @@
       
       const isUncertain = !!g.isDepartureUncertain;
       document.getElementById("editDepartureUncertain").checked = isUncertain;
+      document.getElementById("editDeparture").disabled = isUncertain;
+      document.getElementById("editDeparture").classList.toggle("opacity-60", isUncertain);
+      document.getElementById("editDeparture").classList.toggle("cursor-not-allowed", isUncertain);
       document.getElementById("editStayDays").value = isUncertain ? 5 : (g.stayDays || 5);
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editStaff").value = g.staff || "";
@@ -1592,8 +1595,15 @@
         stayDaysInput.value = 5;
         if (arrivalInput && arrivalInput.value) {
           const stayInfo = computeStandardStay(arrivalInput.value, '', true, 5);
-          departureInput.value = new Date(stayInfo.departureTs).toISOString().slice(0, 16);
+          const depDate = new Date(stayInfo.departureTs);
+          const pad = (n) => String(n).padStart(2, '0');
+          departureInput.value = `${depDate.getFullYear()}-${pad(depDate.getMonth() + 1)}-${pad(depDate.getDate())}T12:00`;
         }
+        departureInput.disabled = true;
+        departureInput.classList.add("opacity-60", "cursor-not-allowed");
+      } else {
+        departureInput.disabled = false;
+        departureInput.classList.remove("opacity-60", "cursor-not-allowed");
       }
     });
 
@@ -2721,14 +2731,14 @@
         </div>
       </div>
 
-     <div class="flex items-center">
-  <select onchange="if(this.value){ window[this.value](); this.value=''; }" class="px-3.5 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold outline-none focus:border-red-500 transition shadow-sm cursor-pointer">
-    <option value="" selected disabled>📥 匯出資料</option>
-    <option value="exportToExcel" class="bg-neutral-950 text-white">📊 匯出 Excel (.xlsx)</option>
-    <option value="openGoogleSheet" class="bg-neutral-950 text-white">🌐 開啟 Google Sheet</option>
-    <option value="exportToCSV" class="bg-neutral-950 text-white">📄 匯出 CSV 檔案</option>
-  </select>
-</div>
+      <div class="flex items-center">
+        <select onchange="if(this.value){ window[this.value](); this.value=''; }" class="px-3.5 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold outline-none focus:border-red-500 transition shadow-sm cursor-pointer">
+          <option value="" selected disabled>📥 匯出資料</option>
+          <option value="exportToExcel" class="bg-neutral-950 text-white">📊 匯出 Excel (.xlsx)</option>
+          <option value="openGoogleSheet" class="bg-neutral-950 text-white">🌐 開啟 Google Sheet</option>
+          <option value="exportToCSV" class="bg-neutral-950 text-white">📄 匯出 CSV 檔案</option>
+        </select>
+      </div>
     </div>
 
     <div id="rosterStatsGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
@@ -3420,7 +3430,7 @@
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">預計抵達濟州時間 (降落)</label>
-            <input id="editArrival" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+            <input id="editArrival" type="datetime-local" onclick="this.showPicker && this.showPicker()" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition cursor-pointer [color-scheme:dark]" />
           </div>
         </div>
 
@@ -3437,7 +3447,7 @@
                 <span>尚未確定 (暫定5晚)</span>
               </label>
             </div>
-            <input id="editDeparture" type="datetime-local" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+            <input id="editDeparture" type="datetime-local" onclick="this.showPicker && this.showPicker()" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition cursor-pointer [color-scheme:dark]" />
           </div>
         </div>
 
