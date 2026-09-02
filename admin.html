@@ -557,14 +557,14 @@
               </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-neutral-400">
+            <div class="space-y-1.5 text-xs text-neutral-400">
               <div>
                 <span class="text-neutral-500">登入帳號:</span>
                 <span class="font-mono text-red-400 font-bold ml-1">${u.username || '-'}</span>
               </div>
               <div class="whitespace-nowrap overflow-hidden text-ellipsis">
                 <span class="text-neutral-500">Google Email:</span>
-                <span class="font-mono text-neutral-300 ml-1">${u.email || '-'}</span>
+                <span class="font-mono text-neutral-300 block sm:inline mt-0.5 sm:mt-0 sm:ml-1">${u.email || '-'}</span>
               </div>
             </div>
           </div>
@@ -1089,7 +1089,6 @@
         ? `<button onclick="alert('⚠️ 黑名單/異常原因說明：\\n${(g.blacklistReason || '無具體說明').replace(/"/g, '&quot;')}')" class="px-2 py-0.5 rounded bg-red-950 border border-red-600 text-red-400 text-[10px] font-black animate-pulse flex items-center gap-0.5 whitespace-nowrap">⚠️ 黑名單</button>`
         : ``;
 
-      // 嚴格依據您原本的邏輯：若已上傳護照顯示「護照」，未上傳顯示「補護照」，完全不加 emoji
       const passportPhotoBtn = g.passportImage 
         ? `<button onclick="viewPassportPhoto('${g.id}')" class="flex-1 py-1.5 px-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center whitespace-nowrap">護照</button>`
         : `<button onclick="triggerUploadPassport('${g.id}')" class="flex-1 py-1.5 px-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-amber-400 rounded-xl text-xs font-medium transition flex items-center justify-center whitespace-nowrap">補護照</button>`;
@@ -1105,7 +1104,6 @@
         ? `<span class="px-2.5 py-1 rounded-xl bg-neutral-900 border border-neutral-700 text-neutral-200 text-xs font-bold whitespace-nowrap">專員: ${g.staff}</span>`
         : `<span class="px-2.5 py-1 rounded-xl bg-neutral-900 border border-neutral-800 text-neutral-500 text-xs font-medium whitespace-nowrap">專員: 未指派</span>`;
 
-      // 原本已綁定 LINE 顯示綠色已綁定標籤，未綁定顯示「確認連結」按鈕
       const lineStatusBtn = g.lineUserId
         ? `<span class="flex-1 py-1.5 px-3 rounded-xl bg-emerald-950 border border-emerald-800 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">已綁定LINE</span>`
         : `<button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="flex-1 py-1.5 px-3 rounded-xl bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-bold transition flex items-center justify-center whitespace-nowrap">確認連結</button>`;
@@ -1188,7 +1186,7 @@
           ` : ''}
 
           <div class="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-xs">
-            <div class="text-[11px] text-neutral-400">登錄時間: <span class="text-neutral-500">${g.createdAt ? new Date(g.createdAt).toLocaleDateString() : '-'}</span></div>
+            <div class="text-[11px] text-neutral-400 whitespace-nowrap">登錄時間: <span class="text-neutral-500">${g.createdAt ? new Date(g.createdAt).toLocaleDateString() : '-'}</span></div>
             <div class="flex items-center gap-2">
               <button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-semibold transition whitespace-nowrap border border-neutral-700">
                 傳送行程確認卡
@@ -2767,7 +2765,7 @@
         <button onclick="openChangePasswordModal()" class="py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-neutral-300 hover:text-white text-[11px] font-medium rounded-xl transition flex items-center justify-center gap-1">
           修改密碼
         </button>
-        <button onclick="logoutAccount()" class="py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 border-red-900/60 text-neutral-400 hover:text-red-400 text-[11px] font-semibold rounded-xl transition flex items-center justify-center gap-1">
+        <button onclick="logoutAccount()" class="py-1.5 bg-neutral-950 hover:bg-neutral-800 border border-neutral-800 hover:border-red-900/60 text-neutral-400 hover:text-red-400 text-[11px] font-semibold rounded-xl transition flex items-center justify-center gap-1">
           登出
         </button>
       </div>
@@ -2776,7 +2774,8 @@
 
   <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300 max-w-full overflow-hidden">
     
-    <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
+    <!-- 頂部標題列與切換按鈕設定為 sticky 永久固定於最上方 -->
+    <div class="sticky top-0 z-30 bg-neutral-950/90 backdrop-blur-md pt-2 pb-4 flex items-center justify-between border-b border-neutral-800">
       <div class="flex items-center gap-3">
         <div class="relative">
           <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
