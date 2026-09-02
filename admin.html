@@ -1122,6 +1122,13 @@
         `;
       }
 
+      // 將日期格式化為僅顯示 月/日 (例如 9/2)
+      let formattedDate = '-';
+      if (g.createdAt) {
+        const d = new Date(g.createdAt);
+        formattedDate = `${d.getMonth() + 1}/${d.getDate()}`;
+      }
+
       return `
         <div class="bg-[#121212] border border-neutral-800/90 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl hover:border-neutral-700 transition overflow-hidden">
           
@@ -1188,7 +1195,7 @@
           <div class="flex items-center justify-between pt-1 border-t border-neutral-800/60 text-xs">
             <div class="text-[11px] text-neutral-400 whitespace-nowrap flex items-center gap-1">
               <span>登錄時間:</span>
-              <span class="text-neutral-500">${g.createdAt ? new Date(g.createdAt).toLocaleDateString() : '-'}</span>
+              <span class="text-neutral-500">${formattedDate}</span>
             </div>
             <div class="flex items-center gap-2">
               <button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-xl text-xs font-semibold transition whitespace-nowrap border border-neutral-700">
@@ -2777,8 +2784,8 @@
 
   <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300 max-w-full overflow-hidden">
     
-    <!-- 頂部標題與按鈕整排釘選固定在最上方 -->
-    <div class="sticky top-0 z-30 bg-neutral-950/95 backdrop-blur-md pt-2 pb-4 flex items-center justify-between border-b border-neutral-800">
+    <!-- 頂部標題與按鈕整排釘選固定在最上方，加上 100% 不透明背景防止文字穿透 -->
+    <div class="sticky top-0 z-30 bg-neutral-950 py-4 flex items-center justify-between border-b border-neutral-800">
       <div class="flex items-center gap-3">
         <div class="relative">
           <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
@@ -3068,8 +3075,29 @@
         </div>
       </div>
 
-      <!-- 報表頁面下方兩欄：左邊放「資料未補齊客戶清單」，右邊放「等待上傳車單名單」 -->
+      <!-- 報表頁面下方兩欄：左邊放「等待上傳車單名單」，右邊放「資料未補齊客戶清單 (異常)」 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+        <div id="actionPendingDispatchContainer" class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 transition">
+          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+            <h4 class="text-xs font-bold text-white">等待上傳車單名單 (管理員專區)</h4>
+            <span class="text-[10px] text-blue-400">點擊直接上傳車單核對</span>
+          </div>
+          <div class="overflow-x-auto max-h-64 overflow-y-auto">
+            <table class="w-full text-left">
+              <thead>
+                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
+                  <th class="py-2 px-3">姓名</th>
+                  <th class="py-2 px-3">抵達時間</th>
+                  <th class="py-2 px-3">航班</th>
+                  <th class="py-2 px-3">專員</th>
+                  <th class="py-2 px-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="actionPendingDispatchBody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div id="actionIncompleteContainer" class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 transition">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
             <h4 class="text-xs font-bold text-red-400">異常：資料未補齊客戶清單 (未結案全量追蹤)</h4>
@@ -3086,27 +3114,6 @@
                 </tr>
               </thead>
               <tbody id="actionIncompleteBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="actionPendingDispatchContainer" class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 transition">
-          <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
-            <h4 class="text-xs font-bold text-white">等待上傳派車單名單 (管理員專區)</h4>
-            <span class="text-[10px] text-blue-400">點擊直接上傳車單核對</span>
-          </div>
-          <div class="overflow-x-auto max-h-64 overflow-y-auto">
-            <table class="w-full text-left">
-              <thead>
-                <tr class="text-[10px] text-neutral-500 border-b border-neutral-800">
-                  <th class="py-2 px-3">姓名</th>
-                  <th class="py-2 px-3">抵達時間</th>
-                  <th class="py-2 px-3">航班</th>
-                  <th class="py-2 px-3">專員</th>
-                  <th class="py-2 px-3 text-right">操作</th>
-                </tr>
-              </thead>
-              <tbody id="actionPendingDispatchBody"></tbody>
             </table>
           </div>
         </div>
