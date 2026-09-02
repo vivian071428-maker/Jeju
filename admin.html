@@ -1052,11 +1052,11 @@
 
       const profile = profileMap[pKey] || { totalPoints: 0, clientType: 'other', allVisits: [] };
       
-      let clientTypeTag = `<span class="px-2 py-0.5 rounded bg-blue-950 border border-blue-800 text-blue-400 text-[10px] font-bold whitespace-nowrap">新客</span>`;
+      let clientTypeTag = `<span class="px-2.5 py-1 rounded-lg bg-blue-950 border border-blue-800 text-blue-400 text-xs font-bold whitespace-nowrap">新客</span>`;
       if (profile.clientType === 'long') {
-        clientTypeTag = `<span class="px-2 py-0.5 rounded bg-red-950 border border-red-800/80 text-red-300 text-[10px] font-bold whitespace-nowrap">長期客戶</span>`;
+        clientTypeTag = `<span class="px-2.5 py-1 rounded-lg bg-red-950 border border-red-800/80 text-red-300 text-xs font-bold whitespace-nowrap">長期客戶</span>`;
       } else if (profile.clientType === 'short') {
-        clientTypeTag = `<span class="px-2 py-0.5 rounded bg-amber-950 border border-amber-800 text-amber-300 text-[10px] font-bold whitespace-nowrap">短期客戶</span>`;
+        clientTypeTag = `<span class="px-2.5 py-1 rounded-lg bg-amber-950 border border-amber-800 text-amber-300 text-xs font-bold whitespace-nowrap">短期客戶</span>`;
       }
 
       const stayInfo = computeStandardStay(g.arrival, g.departure, g.isDepartureUncertain, g.stayDays);
@@ -1078,22 +1078,22 @@
       }
 
       const duplicateAlertBtn = duplicateCandidate
-        ? `<button onclick="openMergeModal('${g.id}', '${duplicateCandidate.guest.id}', '${duplicateCandidate.match.reason}')" class="px-2 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-800 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 shadow-sm whitespace-nowrap">
+        ? `<button onclick="openMergeModal('${g.id}', '${duplicateCandidate.guest.id}', '${duplicateCandidate.match.reason}')" class="px-2.5 py-0.5 rounded bg-amber-950/80 hover:bg-amber-900 border border-amber-800 text-amber-300 text-[10px] font-bold transition flex items-center gap-1 shadow-sm whitespace-nowrap">
              <span>[重複紀錄]</span>
            </button>`
         : ``;
 
       const blacklistBadge = g.isBlacklisted
-        ? `<button onclick="alert('⚠️ 黑名單/異常原因說明：\\n${(g.blacklistReason || '無具體說明').replace(/"/g, '&quot;')}')" class="px-2 py-0.5 rounded bg-red-950 border border-red-600 text-red-400 text-[10px] font-black animate-pulse flex items-center gap-0.5 whitespace-nowrap">⚠️ 黑名單</button>`
+        ? `<button onclick="alert('⚠️ 黑名單/異常原因說明：\\n${(g.blacklistReason || '無具體說明').replace(/"/g, '&quot;')}')" class="px-2.5 py-0.5 rounded bg-red-950 border border-red-600 text-red-400 text-[10px] font-black animate-pulse flex items-center gap-0.5 whitespace-nowrap">⚠️ 黑名單</button>`
         : ``;
 
       const passportPhotoBtn = g.passportImage 
-        ? `<button onclick="viewPassportPhoto('${g.id}')" class="px-3.5 py-1.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center justify-center shadow-md shadow-red-950 whitespace-nowrap">補護照</button>`
-        : `<button onclick="triggerUploadPassport('${g.id}')" class="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-amber-900/60 rounded-lg text-xs font-medium transition flex items-center justify-center whitespace-nowrap">補護照</button>`;
+        ? `<button onclick="viewPassportPhoto('${g.id}')" class="flex-1 py-1.5 px-3 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center shadow-md shadow-red-950 whitespace-nowrap">補護照</button>`
+        : `<button onclick="triggerUploadPassport('${g.id}')" class="flex-1 py-1.5 px-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-amber-400 rounded-xl text-xs font-medium transition flex items-center justify-center whitespace-nowrap">補護照</button>`;
 
       const dispatchVerifyBadge = g.dispatchVerified
-        ? `<button onclick="viewDispatchPhoto('${g.id}')" class="px-3.5 py-1.5 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center justify-center shadow-sm whitespace-nowrap">車單</button>`
-        : `<button onclick="triggerDispatchVerify('${g.id}')" class="px-3.5 py-1.5 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition flex items-center justify-center shadow-sm whitespace-nowrap">車單</button>`;
+        ? `<button onclick="viewDispatchPhoto('${g.id}')" class="flex-1 py-1.5 px-3 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-xl text-xs font-bold transition flex items-center justify-center shadow-sm whitespace-nowrap">車單</button>`
+        : `<button onclick="triggerDispatchVerify('${g.id}')" class="flex-1 py-1.5 px-3 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-blue-300 rounded-xl text-xs font-medium transition flex items-center justify-center shadow-sm whitespace-nowrap">車單</button>`;
 
       const hotelDisplay = g.hotel || '濟州君悅';
       const roomDisplay = g.roomNo && g.roomNo.trim() ? `${hotelDisplay} - ${g.roomNo} 房` : `${hotelDisplay} (待排房)`;
@@ -1102,9 +1102,9 @@
         ? `<span class="px-2 py-0.5 rounded bg-neutral-800 border border-neutral-700 text-neutral-200 text-xs font-bold whitespace-nowrap">專員: ${g.staff}</span>`
         : `<span class="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-neutral-500 text-xs font-medium whitespace-nowrap">專員: 未指派</span>`;
 
-      const lineStatusBadge = g.lineUserId
-        ? `<span class="px-2 py-0.5 rounded bg-emerald-950 border border-emerald-800 text-emerald-300 text-[10px] font-bold flex items-center gap-1 whitespace-nowrap" title="UID: ${g.lineUserId}">🟢 已綁定 LINE</span>`
-        : `<button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="px-3.5 py-1.5 bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-bold transition flex items-center justify-center whitespace-nowrap" title="點擊複製行程核對與身分綁定連結">確認連結</button>`;
+      const lineStatusBtn = g.lineUserId
+        ? `<span class="flex-1 py-1.5 px-3 rounded-xl bg-emerald-950 border border-emerald-800 text-emerald-300 text-xs font-bold flex items-center justify-center gap-1 whitespace-nowrap">已綁定LINE</span>`
+        : `<button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="flex-1 py-1.5 px-3 rounded-xl bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-bold transition flex items-center justify-center whitespace-nowrap">確認連結</button>`;
 
       let nextVisitHtml = "";
       if (g.nextVisitDate) {
@@ -1123,14 +1123,12 @@
       return `
         <div class="bg-[#121212] border border-neutral-800/90 rounded-3xl p-4 sm:p-5 space-y-3.5 shadow-xl hover:border-neutral-700 transition overflow-hidden">
           
-          <div class="space-y-2.5 border-b border-neutral-800/80 pb-3">
+          <div class="space-y-3 border-b border-neutral-800/80 pb-3.5">
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-2 flex-wrap min-w-0">
                 <span class="text-lg font-black text-white tracking-tight">${g.name || '未填寫'}</span>
                 <span class="text-xs text-neutral-400 font-mono font-medium">(${g.englishName || '-'})</span>
                 ${staffDisplay}
-                ${lineStatusBadge}
-                ${clientTypeTag}
                 ${blacklistBadge}
                 ${duplicateAlertBtn}
               </div>
@@ -1139,11 +1137,11 @@
               </button>
             </div>
 
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-              <div class="w-full">${lineStatusBadge.includes('確認連結') ? lineStatusBadge : `<button onclick="copyGuestConfirmUrl('${g.id}', '${g.name || '客戶'}')" class="w-full px-3.5 py-1.5 bg-amber-950 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-bold transition flex items-center justify-center whitespace-nowrap">確認連結</button>`}</div>
-              <div class="w-full"><button onclick="openEditDrawer('${g.id}')" class="w-full px-3.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 rounded-lg text-xs font-semibold transition border border-neutral-700 whitespace-nowrap">新客</button></div>
-              <div class="w-full">${dispatchVerifyBadge}</div>
-              <div class="w-full">${passportPhotoBtn}</div>
+            <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              ${lineStatusBtn}
+              <div class="flex-1 w-full">${clientTypeTag}</div>
+              ${dispatchVerifyBadge}
+              ${passportPhotoBtn}
             </div>
           </div>
 
@@ -2457,7 +2455,7 @@
               <td class="py-2.5 px-3 text-neutral-300 font-mono">${g.airline || '-'}</td>
               <td class="py-2.5 px-3 text-neutral-400">${g.staff || '未指派'}</td>
               <td class="py-2.5 px-3 text-right">
-                <button onclick="triggerDispatchVerify('${g.id}')" class="px-3 py-1.5 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-lg text-xs font-bold transition whitespace-nowrap">補車單</button>
+                <button onclick="triggerDispatchVerify('${g.id}')" class="px-3.5 py-1.5 bg-blue-950 hover:bg-blue-900 border border-blue-800 text-blue-300 rounded-xl text-xs font-bold transition whitespace-nowrap">補車單</button>
               </td>
             </tr>
           `).join("");
@@ -2475,7 +2473,7 @@
               <td class="py-2.5 px-3 text-neutral-400 font-mono">${g.arrival ? g.arrival.split('T')[0] : '-'}</td>
               <td class="py-2.5 px-3 text-red-400 font-medium">${g.missingText}</td>
               <td class="py-2.5 px-3 text-right">
-                <button onclick="openEditDrawer('${g.id}')" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-lg text-xs font-medium transition whitespace-nowrap">補資料</button>
+                <button onclick="openEditDrawer('${g.id}')" class="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 rounded-xl text-xs font-medium transition whitespace-nowrap">補資料</button>
               </td>
             </tr>
           `).join("");
@@ -3064,6 +3062,7 @@
         </div>
       </div>
 
+      <!-- 報表頁面下方兩欄：左邊放「資料未補齊名單 (異常)」，右邊放「等待上傳車單」 -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
         <div id="actionIncompleteContainer" class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 transition">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
