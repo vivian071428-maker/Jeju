@@ -54,9 +54,12 @@
     
     const nameInput = document.getElementById("name");
     const phoneInput = document.getElementById("phone");
+    const phoneError = document.getElementById("phoneError");
     const englishNameInput = document.getElementById("englishName");
+    const englishNameError = document.getElementById("englishNameError");
     const passportInput = document.getElementById("passport");
     const nationalIdInput = document.getElementById("nationalId");
+    const nationalIdError = document.getElementById("nationalIdError");
     const birthdayInput = document.getElementById("birthday");
     const genderSelect = document.getElementById("gender");
     const passportError = document.getElementById("passportError");
@@ -450,16 +453,77 @@
       validatePassport(val);
     });
 
+    function validatePhone(val) {
+      const valid = /^09[0-9]{8}$/.test(val);
+      if (!valid && val.length > 0) {
+        phoneError.textContent = "手機號碼必須為 09 開頭，共 10 碼純數字";
+        phoneError.classList.remove("hidden");
+      } else {
+        phoneError.classList.add("hidden");
+      }
+      return valid;
+    }
+
+    phoneInput.addEventListener("input", (e) => {
+      let val = e.target.value.replace(/[^0-9]/g, "");
+      if (val.length > 10) val = val.slice(0, 10);
+      e.target.value = val;
+      validatePhone(val);
+    });
+
+    function formatEnglishName(val) {
+      let clean = val.toUpperCase().replace(/[^A-Z\s,]/g, "");
+      if (!clean) return "";
+      
+      if (!clean.includes(",")) {
+        let parts = clean.trim().split(/\s+/);
+        if (parts.length >= 2) {
+          let surname = parts[0];
+          let given = parts.slice(1).join(" ");
+          clean = `${surname}, ${given}`;
+        }
+      }
+      return clean;
+    }
+
     englishNameInput.addEventListener("input", (e) => {
-      e.target.value = e.target.value.toUpperCase();
+      let filtered = e.target.value.toUpperCase().replace(/[^A-Z\s,]/g, "");
+      e.target.value = filtered;
+      englishNameError.classList.add("hidden");
+    });
+
+    englishNameInput.addEventListener("blur", (e) => {
+      let formatted = formatEnglishName(e.target.value);
+      e.target.value = formatted;
+      if (formatted && !formatted.includes(",")) {
+        englishNameError.textContent = "建議格式為: 姓氏, 名字 (例: LIN, MEI HUA)";
+        englishNameError.classList.remove("hidden");
+      } else {
+        englishNameError.classList.add("hidden");
+      }
     });
 
     function formatNationalIdField() {
       let clean = nationalIdInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (!clean) { nationalIdInput.value = ''; return; }
+      if (!clean) { nationalIdInput.value = ''; nationalIdError.classList.add("hidden"); return; }
+      
       let first = clean.charAt(0).replace(/[^A-Z]/g, '');
       let rest = clean.substring(1).replace(/[^0-9]/g, '').slice(0, 9);
       nationalIdInput.value = first + rest;
+
+      const fullVal = first + rest;
+      if (fullVal.length === 10) {
+        const secondChar = fullVal.charAt(1);
+        const isValid = /^[A-Z][12][0-9]{8}$/.test(fullVal);
+        if (!isValid || (secondChar !== '1' && secondChar !== '2')) {
+          nationalIdError.textContent = "身分證格式錯誤：首字須為英文，第二碼須為 1 或 2，總計 10 碼";
+          nationalIdError.classList.remove("hidden");
+        } else {
+          nationalIdError.classList.add("hidden");
+        }
+      } else {
+        nationalIdError.classList.add("hidden");
+      }
     }
 
     nationalIdInput.addEventListener("input", formatNationalIdField);
@@ -474,8 +538,24 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      
+      const phoneVal = phoneInput.value.trim();
+      if (!validatePhone(phoneVal)) {
+        phoneError.textContent = "手機號碼必須為 09 開頭，共 10 碼純數字";
+        phoneError.classList.remove("hidden");
+        return phoneInput.focus();
+      }
+
       const passportVal = passportInput.value.trim();
       if (!validatePassport(passportVal)) return passportInput.focus();
+
+      const nidVal = nationalIdInput.value.trim();
+      const nidValid = /^[A-Z][12][0-9]{8}$/.test(nidVal);
+      if (!nidValid) {
+        nationalIdError.textContent = "身分證格式錯誤：首字須為英文，第二碼須為 1 或 2，總計 10 碼";
+        nationalIdError.classList.remove("hidden");
+        return nationalIdInput.focus();
+      }
 
       let isUncertain = departureUncertain.checked;
       let depValue = isUncertain ? "" : departureInput.value;
@@ -498,11 +578,11 @@
 
       const guestPayload = {
         name: nameInput.value.trim(),
-        phone: phoneInput.value.trim(),
+        phone: phoneVal,
         englishName: englishNameInput.value.trim(),
         referrer: referrerInput.value.trim(),
         passport: passportVal,
-        nationalId: nationalIdInput.value.trim(),
+        nationalId: nidVal,
         birthday: birthdayInput.value,
         gender: genderSelect.value,
         lineNickname: lineNicknameInput.value.trim(),
@@ -551,7 +631,7 @@
           body: JSON.stringify({
             action: "guest_submit",
             name: nameInput.value.trim(),
-            phone: phoneInput.value.trim(),
+            phone: phoneVal,
             clientType: "新客",
             arrival: arrivalInput.value,
             stayDays: stayDaysCount,
@@ -577,6 +657,9 @@
         imagePreviewContainer.classList.add("hidden");
         if (ocrStatus) ocrStatus.classList.add("hidden");
         if (passportError) passportError.classList.add("hidden");
+        if (phoneError) phoneError.classList.add("hidden");
+        if (englishNameError) englishNameError.classList.add("hidden");
+        if (nationalIdError) nationalIdError.classList.add("hidden");
         if (departureError) departureError.classList.add("hidden");
         departureInput.disabled = false;
         returnAirlineInput.disabled = false;
@@ -656,14 +739,16 @@
         <!-- 聯絡手機號碼 -->
         <div>
           <label class="block text-xs font-semibold text-neutral-300 mb-1">聯絡手機號碼 * <span class="text-[10px] text-neutral-500">(認領與身分核對防呆)</span></label>
-          <input id="phone" required type="tel" placeholder="例：0912345678" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono placeholder:text-neutral-600 text-neutral-100 transition" />
+          <input id="phone" required type="tel" maxlength="10" placeholder="例：0912345678" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono placeholder:text-neutral-600 text-neutral-100 transition" />
+          <p id="phoneError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
         </div>
 
         <!-- 護照英文姓名 -->
         <div>
           <label class="block text-xs font-semibold text-neutral-300 mb-1">護照英文姓名 *</label>
-          <input id="englishName" required placeholder="例：LIN, MEI-HUA" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
-          <p class="text-[10px] text-neutral-500 mt-0.5">※ 請依照護照格式填寫（SURNAME, GIVEN NAME）。</p>
+          <input id="englishName" required placeholder="例：LIN, MEI HUA" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
+          <p id="englishNameError" class="hidden text-xs text-amber-400 font-medium mt-1"></p>
+          <p class="text-[10px] text-neutral-500 mt-0.5">※ 請依照護照格式填寫（姓氏, 名字）。</p>
         </div>
 
         <!-- 推薦人 (選填) -->
@@ -685,7 +770,8 @@
         <!-- 身分證字號 -->
         <div>
           <label class="block text-xs font-semibold text-neutral-300 mb-1">身分證字號 / 證件號 *</label>
-          <input id="nationalId" maxlength="10" required placeholder="例：A234567893" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono tracking-wider placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
+          <input id="nationalId" maxlength="10" required placeholder="例：A123456789" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm font-mono tracking-wider placeholder:text-neutral-600 uppercase text-neutral-100 transition" />
+          <p id="nationalIdError" class="hidden text-xs text-red-400 font-medium mt-1"></p>
         </div>
 
         <!-- 出生年月日 & 性別 -->
@@ -723,7 +809,7 @@
           </div>
         </div>
 
-        <!-- 回程離開航班與起飛時間 -->
+        <!-- 回程航班與起飛時間 -->
         <div class="space-y-2 pt-1 border-t border-neutral-800/80">
           <div class="flex items-center justify-between">
             <label class="block text-xs font-semibold text-neutral-300">回程航班與起飛時間</label>
