@@ -1122,7 +1122,7 @@
         `;
       }
 
-      // 將日期格式化為僅顯示 月/日 (例如 9/2)
+      // 日期格式化為僅顯示月/日 (例如 9/2)
       let formattedDate = '-';
       if (g.createdAt) {
         const d = new Date(g.createdAt);
@@ -2782,34 +2782,34 @@
     </div>
   </aside>
 
-  <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 space-y-5 transition-all duration-300 max-w-full overflow-hidden">
-    
-    <!-- 頂部標題與按鈕整排釘選固定在最上方，加上 100% 不透明背景防止文字穿透 -->
-    <div class="sticky top-0 z-30 bg-neutral-950 py-4 flex items-center justify-between border-b border-neutral-800">
-      <div class="flex items-center gap-3">
-        <div class="relative">
-          <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
-            <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
-            <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
-            <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
-          </button>
-          <span id="burgerTaskBadge" class="hidden absolute -top-1.5 -right-1.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-black min-w-[17px] text-center border-2 border-neutral-950 shadow-md animate-pulse">0</span>
-        </div>
-        <div>
-          <h1 id="currentPageTitle" class="text-lg sm:text-xl font-black text-white tracking-tight">即時營運行程</h1>
-          <p class="text-[10px] sm:text-xs text-neutral-400 mt-0.5">即時掌握在島房態、專車接送與會員累積總積分</p>
-        </div>
+  <!-- 將整個頂部列用 fixed 固定在最上方，並在 main 容器加上 pt-20 確保下方內容不被遮擋 -->
+  <div class="fixed top-0 left-0 lg:left-64 right-0 z-30 bg-neutral-950 px-3 md:px-8 py-3 flex items-center justify-between border-b border-neutral-800 shadow-xl">
+    <div class="flex items-center gap-3">
+      <div class="relative">
+        <button onclick="toggleSidebar()" class="p-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 rounded-xl text-neutral-200 hover:text-white transition flex flex-col gap-1 items-center justify-center w-9 h-9" title="收合 / 展開側邊選單">
+          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+          <span class="w-4 h-0.5 bg-neutral-300 rounded"></span>
+        </button>
+        <span id="burgerTaskBadge" class="hidden absolute -top-1.5 -right-1.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-black min-w-[17px] text-center border-2 border-neutral-950 shadow-md animate-pulse">0</span>
       </div>
-
-      <div class="flex items-center">
-        <select onchange="if(this.value){ window[this.value](); this.value=''; }" class="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold outline-none focus:border-red-500 transition shadow-sm cursor-pointer">
-          <option value="" selected disabled>匯出資料</option>
-          <option value="exportToExcel" class="bg-neutral-950 text-white">匯出 Excel (.xlsx)</option>
-          <option value="openGoogleSheet" class="bg-neutral-950 text-white">開啟 Google Sheet</option>
-          <option value="exportToCSV" class="bg-neutral-950 text-white">匯出 CSV 檔案</option>
-        </select>
+      <div>
+        <h1 id="currentPageTitle" class="text-lg sm:text-xl font-black text-white tracking-tight">即時營運行程</h1>
+        <p class="text-[10px] sm:text-xs text-neutral-400 mt-0.5">即時掌握在島房態、專車接送與會員累積總積分</p>
       </div>
     </div>
+
+    <div class="flex items-center">
+      <select onchange="if(this.value){ window[this.value](); this.value=''; }" class="px-2.5 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 rounded-xl text-xs font-semibold outline-none focus:border-red-500 transition shadow-sm cursor-pointer">
+        <option value="" selected disabled>匯出資料</option>
+        <option value="exportToExcel" class="bg-neutral-950 text-white">匯出 Excel (.xlsx)</option>
+        <option value="openGoogleSheet" class="bg-neutral-950 text-white">開啟 Google Sheet</option>
+        <option value="exportToCSV" class="bg-neutral-950 text-white">匯出 CSV 檔案</option>
+      </select>
+    </div>
+  </div>
+
+  <main id="mainContentArea" class="flex-1 min-h-screen lg:ml-64 p-3 md:p-8 pt-20 md:pt-24 space-y-5 transition-all duration-300 max-w-full overflow-hidden">
 
     <div id="rosterStatsGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
       <div id="cardAll" onclick="setRosterFilter('all')" class="cursor-pointer bg-neutral-900 border border-neutral-800 rounded-2xl p-3.5 transition hover:border-neutral-700">
@@ -3075,7 +3075,7 @@
         </div>
       </div>
 
-      <!-- 報表頁面下方兩欄：左邊放「等待上傳車單名單」，右邊放「資料未補齊客戶清單 (異常)」 -->
+      <!-- 報表頁面下方兩欄：左邊放「等待上傳車單名單」(藍色)，右邊放「資料未補齊客戶清單」(紅色) -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
         <div id="actionPendingDispatchContainer" class="bg-neutral-900 border border-neutral-800 p-4 rounded-2xl space-y-3 transition">
           <div class="flex items-center justify-between border-b border-neutral-800 pb-2.5">
