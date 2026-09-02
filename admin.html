@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>濟州島行程與房務管理後台</title>
+  <title>濟州島 VIP CRM </title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -2853,7 +2853,7 @@
     <div id="rosterView" class="space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-2.5 shadow-md">
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
-          <input id="searchInput" placeholder="搜尋姓名、電話、護照、身分證、飯店、房號、航班、LINE 或備註..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="searchInput" placeholder="搜尋姓名、電話、護照、身分證、飯店、房號、航班、LINE ..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
@@ -2879,7 +2879,7 @@
     <!-- 分頁 2: 房務與續訂警戒視圖 -->
     <div id="housekeepingView" class="hidden space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-xs font-bold text-neutral-300">住客退房倒數與續訂追蹤看板</h3>
+        <h3 class="text-xs font-bold text-neutral-300">客戶退房倒數與續訂追蹤</h3>
         <span class="text-[11px] text-neutral-500">依退房日動態倒數（未定離開日暫定5晚 / 倒數2晚關懷 / 倒數1晚警戒 / 離島逾12h自動結案）</span>
       </div>
       <div id="housekeepingCards" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
@@ -3158,7 +3158,7 @@
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">任務負責人全名 * <span class="text-[10px] text-neutral-500">(須與系統員工名冊全名一致)</span></label>
-          <input id="taskAssigneeInput" placeholder="負責人全名（例：李庭瑜）" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="taskAssigneeInput" placeholder="負責人全名" class="w-full px-4 py-3 bg-neutral-950 border border-neutral-800 rounded-2xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1.5">任務截止時間 *</label>
@@ -3328,7 +3328,7 @@
       <div class="space-y-3 text-xs">
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">員工真實全名 *</label>
-          <input id="newUserName" placeholder="例：李庭瑜" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+          <input id="newUserName" placeholder="員工全名" class="w-full px-3.5 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
         </div>
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">員工 Google 帳號 (Email) *</label>
@@ -3466,7 +3466,7 @@
             <input id="editEnglishName" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-mono uppercase outline-none focus:border-red-500 text-xs transition" />
           </div>
           <div>
-            <label class="block text-neutral-400 mb-1">LINE UserID (綁定碼)</label>
+            <label class="block text-neutral-400 mb-1">LINE UID </label>
             <input id="editLineUserId" placeholder="例如：U123456..." class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-neutral-300 font-mono outline-none focus:border-red-500 text-xs transition" />
           </div>
         </div>
@@ -3477,7 +3477,7 @@
             <input id="editHotel" placeholder="預設: 濟州君悅 (可修改)" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
           </div>
           <div>
-            <label class="block text-amber-400 font-semibold mb-1">入住房號 (Room No.) <span class="text-[10px] text-neutral-500">(填寫自動變已訂房)</span></label>
+            <label class="block text-amber-400 font-semibold mb-1">入住房號 (Room No.)</label>
             <input id="editRoomNo" placeholder="例：1208" class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-300 font-mono font-bold outline-none focus:border-amber-500 text-xs transition" />
           </div>
         </div>
@@ -3551,13 +3551,13 @@
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">接待專員</label>
-            <input id="editStaff" placeholder="指派人員（例：李庭瑜）" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
+            <input id="editStaff" placeholder="指派人員" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs transition" />
           </div>
         </div>
 
         <!-- 預計下次回訪時間 (新增) -->
         <div class="bg-amber-950/20 border border-amber-900/40 rounded-xl p-3 space-y-1">
-          <label class="block text-amber-300 font-bold whitespace-nowrap">🗓 預計下次回訪時間 (14天前自動推播提醒)</label>
+          <label class="block text-amber-300 font-bold whitespace-nowrap"> 預計下次回訪時間 </label>
           <input id="editNextVisitDate" type="date" class="w-full px-3 py-2 bg-neutral-950 border border-amber-800/60 rounded-xl text-white outline-none focus:border-amber-500 text-xs" />
           <p class="text-[10px] text-neutral-400">設定後，系統將於該日期的 14 天前夜間排程自動推播提醒專員。</p>
         </div>
