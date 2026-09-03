@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>濟州專屬行程確認卡</title>
-  <meta name="description" content="請核對您的濟州專屬行程與航班資料！">
-  <meta property="og:title" content="濟州專屬行程確認卡">
-  <meta property="og:description" content="請核對您的濟州專屬行程與航班資料！">
+  <title>Poker Next專屬行程確認卡</title>
+  <meta name="description" content="請核對您的行程與航班資料！">
+  <meta property="og:title" content="Poker Next 專屬行程確認卡">
+  <meta property="og:description" content="請核對您的行程與航班資料！">
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- LINE LIFF SDK -->
@@ -207,7 +207,7 @@
         errEl.textContent = "認領綁定失敗：" + err.message;
         errEl.classList.remove("hidden");
       } finally {
-        btn.innerText = "確認行程並綁定 LINE";
+        btn.innerText = "確認行程";
         btn.disabled = false;
       }
     };
