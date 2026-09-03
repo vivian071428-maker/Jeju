@@ -1765,6 +1765,26 @@
             note: note || "無"
           });
         }
+        // 💡 強制防呆與即時除錯：只要點擊儲存，不管今日積分多少，直接彈窗確認並推播
+        alert("準備發送 LINE 積分通知！\nUID: " + (lineUserId || "無") + "\n本次新增: " + todayAddPoints);
+
+        if (lineUserId) {
+          triggerLineNotify({
+            action: "send_points_update",
+            lineUserId: lineUserId,
+            name: name || "貴賓",
+            todayPoints: todayAddPoints,
+            totalPoints: newCumulativePoints
+          });
+        } else {
+          alert("❌ 失敗：該客戶的 LINE UID 是空白的，無法發送！");
+        }
+
+        window.closeEditDrawer();
+      } catch(err) {
+        alert("儲存失敗: " + err.message);
+      }
+    };
 
         if (todayAddPoints > 0 && lineUserId) {
           triggerLineNotify({
