@@ -1148,7 +1148,6 @@
             </div>
 
             <div class="flex items-center gap-2 flex-wrap">
-              ${statusBadge}
               ${lineStatusBtn}
               ${clientTypeTag}
               ${dispatchVerifyBadge}
@@ -1181,8 +1180,10 @@
               <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
               <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
               <div>起飛離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
-              <div>今日積分: <span class="text-emerald-400 font-mono font-bold">+${g.todayPoints || 0}</span> 點 | 本次累積: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
-            </div>
+<div class="flex items-center justify-between gap-2">
+                <div>今日積分: <span class="text-emerald-400 font-mono font-bold">+${g.todayPoints || 0}</span> 點 | 本次累積: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
+                <div>${statusBadge}</div>
+              </div>         
           </div>
 
           ${nextVisitHtml}
