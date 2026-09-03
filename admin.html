@@ -469,6 +469,7 @@
       document.getElementById("newUserPassword").value = "";
       document.getElementById("newUserRole").value = "staff";
       document.getElementById("userModalError").classList.add("hidden");
+      document.getElementById("userModal").classList.add("hidden"); // (保持原結構)
       document.getElementById("userModal").classList.remove("hidden");
       setModalOpenState(true);
     };
@@ -689,9 +690,14 @@
       return (str || '').toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
     }
 
+    // 💡 修正重複比對與合併邏輯：已結案、已離境的歷史舊行程不會被誤判為重複合併
     function checkDuplicateMatch(g1, g2) {
       if (!g1 || !g2 || g1.id === g2.id) return null;
       if (g1.status === 'merged' || g2.status === 'merged') return null;
+
+      // 如果 g2 已經是結案或已離境狀態，代表這是他的舊行程，絕對不能觸發合併通知，應視為獨立新預約
+      const isG2Closed = (g2.status === 'completed' || g2.status === 'checked_out' || g2.housekeepingStatus === 'closed');
+      if (isG2Closed) return null;
 
       const p1 = normalizeStr(g1.passport);
       const p2 = normalizeStr(g2.passport);
@@ -1704,9 +1710,6 @@
       const todayAddPoints = parseInt(document.getElementById("editTodayPoints").value, 10) || 0;
       const oldCumulativePoints = parseInt(g.points || 0, 10) || 0;
       const newCumulativePoints = oldCumulativePoints + todayAddPoints;
-      
-      // 💡 加上強制彈窗除錯
-      alert("準備儲存！今日新增積分: " + todayAddPoints + " | LINE UID: " + (lineUserId || "空白"));
 
       const oldStaff = (g.staff || "").trim();
       const newStaff = document.getElementById("editStaff").value.trim();
