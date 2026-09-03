@@ -1704,11 +1704,10 @@
       const todayAddPoints = parseInt(document.getElementById("editTodayPoints").value, 10) || 0;
       const oldCumulativePoints = parseInt(g.points || 0, 10) || 0;
       const newCumulativePoints = oldCumulativePoints + todayAddPoints;
-      // 🔍 這裡加上除錯檢查
-      console.log("👉 準備儲存積分！今日新增: ", todayAddPoints);
-      console.log("👉 目標 LINE UID: ", lineUserId);
-      console.log("👉 計算後總積分: ", newCumulativePoints);
       
+      // 💡 加上強制彈窗除錯
+      alert("準備儲存！今日新增積分: " + todayAddPoints + " | LINE UID: " + (lineUserId || "空白"));
+
       const oldStaff = (g.staff || "").trim();
       const newStaff = document.getElementById("editStaff").value.trim();
       const staffChanged = (newStaff !== "" && newStaff !== oldStaff);
