@@ -1147,7 +1147,7 @@
               </button>
             </div>
 
-            <div class="flex items-center gap-2 flex-wrap">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
               ${lineStatusBtn}
               ${clientTypeTag}
               ${dispatchVerifyBadge}
@@ -1180,11 +1180,12 @@
               <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
               <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
               <div>起飛離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
-<div class="flex items-center justify-between gap-2">
+              <div class="flex items-center justify-between gap-2 pt-1">
                 <div>今日積分: <span class="text-emerald-400 font-mono font-bold">+${g.todayPoints || 0}</span> 點 | 本次累積: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
                 <div>${statusBadge}</div>
-              </div>         
-                  </div>     
+              </div>
+            </div>
+          </div>
 
           ${nextVisitHtml}
 
@@ -1745,7 +1746,6 @@
           status, nextVisitDate, isBlacklisted, blacklistReason, note, auditLogs
         });
 
-        // 只有在專員變更（或新指派）時才發送派案通知給專員
         if (staffChanged) {
           const dynamicClientType = document.getElementById("drawerClientTag")?.innerText || "新客";
           triggerLineNotify({
@@ -1762,7 +1762,6 @@
           });
         }
 
-        // 如果本次有新增積分且客戶有綁定 LINE，即時發送通知給客戶
         if (todayAddPoints > 0 && lineUserId) {
           triggerLineNotify({
             action: "send_points_update",
@@ -2875,7 +2874,7 @@
     <div id="rosterView" class="space-y-3">
       <div class="bg-neutral-900 border border-neutral-800 p-3 rounded-2xl space-y-2.5 shadow-md">
         <div class="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center justify-between">
-          <input id="searchInput" placeholder="搜尋姓名、電話、護照、身分證、飯店、房號、航班、LINE ..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="searchInput" placeholder="搜尋姓名,電話,護照,身分證,飯店,房號,航班,LINE ..." class="w-full md:w-80 px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
           
           <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
             <select id="unifiedFilterSelect" class="px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white outline-none focus:border-red-500 transition font-medium">
@@ -2916,7 +2915,7 @@
             <h3 class="text-xs font-bold text-white">所有貴賓客戶名冊</h3>
             <span class="text-[11px] text-neutral-400">(共篩選出 <b id="crmTotalCount" class="text-amber-400 font-mono">0</b> 位貴賓)</span>
           </div>
-          <input id="crmSearchInput" placeholder="搜尋姓名、電話、護照、身分證、飯店、房號、LINE、推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
+          <input id="crmSearchInput" placeholder="搜尋姓名,電話,護照,身分證,飯店,房號,LINE,推薦人..." class="w-full md:w-72 px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-xs text-white placeholder:text-neutral-500 outline-none focus:border-red-500 transition" />
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 items-center text-xs">
@@ -3394,7 +3393,7 @@
 
       <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-3.5 space-y-2 text-left text-xs">
         <div class="flex items-center justify-between border-b border-neutral-800/80 pb-2">
-          <span class="text-neutral-500">派車截圖辨識姓名:</span>
+          <span class="text-neutral-500">派車單截圖辨識姓名:</span>
           <span id="dispatchOcrRaw" class="text-blue-400 font-mono font-bold text-sm"></span>
         </div>
         <div class="flex items-center justify-between pt-1">
