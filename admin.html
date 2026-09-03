@@ -825,8 +825,10 @@
       const statusConfig = {
         'pending': { label: '待確認', cls: 'bg-neutral-800 text-neutral-300 border border-neutral-700' },
         'contacted': { label: '已聯繫', cls: 'bg-cyan-950 text-cyan-300 border border-cyan-800/80' },
+        'waiting_docs': { label: '等待補資料', cls: 'bg-orange-950 text-orange-300 border border-orange-800/80' },
+        'docs_complete': { label: '資料已完成', cls: 'bg-emerald-950 text-emerald-300 border border-emerald-800/80' },
         'booking_room': { label: '待訂房', cls: 'bg-amber-950 text-amber-300 border border-amber-800/80' },
-        'booked_room': { label: '已訂房', cls: 'bg-indigo-950 text-indigo-300 border border-indigo-800/80' },
+        'booked_room': { label: '訂房完成', cls: 'bg-indigo-950 text-indigo-300 border border-indigo-800/80' },
         'confirmed_pickup': { label: '待接機', cls: 'bg-blue-950 text-blue-300 border border-blue-800/80' },
         'in_island': { label: '在島中', cls: 'bg-emerald-950 text-emerald-300 border border-emerald-800/80' },
         'extending': { label: '續住確認中', cls: 'bg-purple-950 text-purple-300 border border-purple-800/80' },
@@ -1122,7 +1124,6 @@
         `;
       }
 
-      // 日期格式化為僅顯示月/日 (例如 9/2)
       let formattedDate = '-';
       if (g.createdAt) {
         const d = new Date(g.createdAt);
@@ -1171,7 +1172,7 @@
               <div>聯絡手機: <span class="font-mono text-neutral-300 font-bold">${phoneText}</span></div>
               <div>LINE 暱稱: <span class="text-red-400 font-medium">${g.lineNickname || '-'}</span></div>
               ${g.referrer ? `<div>推薦人: <span class="text-amber-300 font-medium">${g.referrer}</span></div>` : ''}
-              <div class="text-amber-400 font-mono font-medium">累積總積分: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(歷史: ${profile.closedHistoryPoints} + 本次: ${g.points || 0})</span></div>
+              <div class="text-amber-400 font-mono font-medium">累積總積分: <span class="text-white font-bold">${profile.totalPoints}</span> 點 <span class="text-[10px] text-neutral-500">(歷史: ${profile.closedHistoryPoints} + 本次累計: ${g.points || 0})</span></div>
             </div>
 
             <div class="space-y-1.5">
@@ -1179,7 +1180,7 @@
               <div>抵達降落: <span class="text-neutral-300 font-medium">${g.arrival ? g.arrival.replace('T', ' ') : '-'}</span></div>
               <div>回程航班: <span class="bg-neutral-800 text-neutral-300 px-1.5 py-0.5 rounded font-mono font-bold text-[11px]">${formattedReturnFlight}</span></div>
               <div>起飛離開: <span class="text-neutral-300">${departureText}</span> <span class="text-neutral-500">(${stayDaysText})</span></div>
-              <div>本次發放積分: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
+              <div>今日積分: <span class="text-emerald-400 font-mono font-bold">+${g.todayPoints || 0}</span> 點 | 本次累積: <span class="text-amber-300 font-mono font-bold">${g.points || 0}</span> 點</div>
             </div>
           </div>
 
@@ -1548,6 +1549,8 @@
       document.getElementById("editDeparture").classList.toggle("opacity-60", isUncertain);
       document.getElementById("editDeparture").classList.toggle("cursor-not-allowed", isUncertain);
       document.getElementById("editStayDays").value = isUncertain ? 5 : (g.stayDays || 5);
+      
+      document.getElementById("editTodayPoints").value = "";
       document.getElementById("editPoints").value = g.points || 0;
       document.getElementById("editStaff").value = g.staff || "";
       
@@ -1695,9 +1698,13 @@
         departure = new Date(stayInfo.departureTs).toISOString().slice(0, 16);
       }
 
-      const points = parseInt(document.getElementById("editPoints").value, 10) || 0;
-      const oldPoints = parseInt(g.points || 0, 10) || 0;
-      const staff = document.getElementById("editStaff").value.trim();
+      const todayAddPoints = parseInt(document.getElementById("editTodayPoints").value, 10) || 0;
+      const oldCumulativePoints = parseInt(g.points || 0, 10) || 0;
+      const newCumulativePoints = oldCumulativePoints + todayAddPoints;
+      
+      const oldStaff = (g.staff || "").trim();
+      const newStaff = document.getElementById("editStaff").value.trim();
+      const staffChanged = (newStaff !== "" && newStaff !== oldStaff);
       
       let status = document.getElementById("editStatus").value;
       if (roomNo && (status === 'pending' || status === 'contacted' || status === 'booking_room')) {
@@ -1718,10 +1725,10 @@
         msg: `由【${currentUser.name}】更新資料 [狀態: ${status}]`
       });
 
-      if (points !== oldPoints) {
+      if (todayAddPoints > 0) {
         auditLogs.unshift({
           time: Date.now(),
-          msg: `由【${currentUser.name}】將積分由 ${oldPoints} 點調整為 ${points} 點`
+          msg: `由【${currentUser.name}】新增今日積分 +${todayAddPoints} 點 (本次累計: ${newCumulativePoints} 點)`
         });
       }
 
@@ -1730,14 +1737,18 @@
           name, phone, englishName, hotel, roomNo, passport, nationalId, birthday, gender,
           lineNickname, lineUserId, memberId, referrer, airline, arrival,
           returnAirline, departure, isDepartureUncertain, stayDays,
-          points, staff, status, nextVisitDate, isBlacklisted, blacklistReason, note, auditLogs
+          todayPoints: todayAddPoints,
+          points: newCumulativePoints,
+          staff: newStaff,
+          status, nextVisitDate, isBlacklisted, blacklistReason, note, auditLogs
         });
 
-        if (staff) {
+        // 只有在專員變更（或新指派）時才發送派案通知給專員
+        if (staffChanged) {
           const dynamicClientType = document.getElementById("drawerClientTag")?.innerText || "新客";
           triggerLineNotify({
             action: "assign_staff",
-            staffName: staff,
+            staffName: newStaff,
             name: name || "貴賓",
             phone: phone || "-",
             clientType: dynamicClientType,
@@ -1746,6 +1757,17 @@
             hotel: hotel,
             roomNo: roomNo,
             note: note || "無"
+          });
+        }
+
+        // 如果本次有新增積分且客戶有綁定 LINE，即時發送通知給客戶
+        if (todayAddPoints > 0 && lineUserId) {
+          triggerLineNotify({
+            action: "send_points_update",
+            lineUserId: lineUserId,
+            name: name || "貴賓",
+            todayPoints: todayAddPoints,
+            totalPoints: newCumulativePoints
           });
         }
 
@@ -2612,7 +2634,8 @@
           "離開時間": stayInfo.departureDisplay,
           "住宿晚數": stayInfo.stayDays,
           "預計下次回訪": g.nextVisitDate || '',
-          "積分": g.points || 0,
+          "今日積分": g.todayPoints || 0,
+          "本次累積積分": g.points || 0,
           "接待專員": g.staff || '未指派',
           "狀態": g.status || '',
           "黑名單": g.isBlacklisted ? '是' : '否',
@@ -2781,7 +2804,6 @@
     </div>
   </aside>
 
-  <!-- 將整個頂部列用 fixed 固定在最上方，並在 main 容器加上 pt-20 確保下方內容不被遮擋 -->
   <div class="fixed top-0 left-0 lg:left-64 right-0 z-30 bg-neutral-950 px-3 md:px-8 py-3 flex items-center justify-between border-b border-neutral-800 shadow-xl">
     <div class="flex items-center gap-3">
       <div class="relative">
@@ -3192,7 +3214,7 @@
         <img id="dispatchModalImg" src="" alt="派車單原圖" class="max-h-[70vh] w-auto object-contain rounded-lg shadow-md" />
       </div>
       <div class="flex justify-end pt-1">
-        <button onclick="closeDispatchPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl transition">
+        <button onclick="closeDispatchPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold transition">
           關閉預覽
         </button>
       </div>
@@ -3395,7 +3417,7 @@
         <img id="passportModalImg" src="" alt="護照照片" class="max-h-[70vh] w-auto object-contain rounded-lg shadow-md" />
       </div>
       <div class="flex justify-end pt-1">
-        <button onclick="closePassportPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-xl transition">
+        <button onclick="closePassportPhotoModal()" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold transition">
           關閉預覽
         </button>
       </div>
@@ -3538,14 +3560,18 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-3 gap-2">
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div>
             <label class="block text-neutral-400 mb-1">停留晚數</label>
             <input id="editStayDays" type="number" min="1" max="60" class="w-full px-3 py-2 bg-neutral-950 border border-neutral-800 rounded-xl text-white outline-none focus:border-red-500 text-xs font-bold font-mono transition" />
           </div>
           <div>
-            <label class="block text-amber-400 font-semibold mb-1">發放積分</label>
-            <input id="editPoints" type="text" inputmode="numeric" pattern="[0-9]*" oninput="this.value = this.value.replace(/[^0-9]/g, ''); onDrawerPointsInput();" placeholder="0" class="w-full px-3 py-2 bg-neutral-950 border border-amber-900/60 rounded-xl text-amber-400 font-bold outline-none focus:border-amber-500 font-mono text-xs transition" />
+            <label class="block text-emerald-400 font-semibold mb-1">今日新增積分</label>
+            <input id="editTodayPoints" type="text" inputmode="numeric" pattern="[0-9]*" oninput="this.value = this.value.replace(/[^0-9]/g, '');" placeholder="輸入今日獲得積分" class="w-full px-3 py-2 bg-neutral-950 border border-emerald-900/60 rounded-xl text-emerald-400 font-bold outline-none focus:border-emerald-500 font-mono text-xs transition" />
+          </div>
+          <div>
+            <label class="block text-amber-400 font-semibold mb-1">累積總積分</label>
+            <input id="editPoints" type="text" readonly class="w-full px-3 py-2 bg-neutral-900 border border-neutral-800 rounded-xl text-amber-400 font-bold font-mono text-xs cursor-not-allowed opacity-80" />
           </div>
           <div>
             <label class="block text-neutral-400 mb-1">接待專員</label>
@@ -3563,15 +3589,17 @@
         <div>
           <label class="block text-neutral-300 font-semibold mb-1">行程生命週期狀態</label>
           <select id="editStatus" class="w-full px-3 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-white font-medium outline-none focus:border-red-500 text-xs transition truncate text-ellipsis">
-            <option value="pending">1. 待確認</option>
-            <option value="contacted">2. 已聯繫</option>
-            <option value="booking_room">3. 待訂房</option>
-            <option value="booked_room">4. 已訂房</option>
-            <option value="confirmed_pickup">5. 待接機</option>
-            <option value="in_island">6. 在島中</option>
-            <option value="extending">7. 續住確認中</option>
-            <option value="departed_followup">8. 已離境 / 待回訪</option>
-            <option value="completed">9. 已結案</option>
+            <option value="pending">待確認</option>
+            <option value="contacted">已聯繫</option>
+            <option value="waiting_docs">等待補資料</option>
+            <option value="docs_complete">資料已完成</option>
+            <option value="booking_room">待訂房</option>
+            <option value="booked_room">訂房完成</option>
+            <option value="confirmed_pickup">待接機</option>
+            <option value="in_island">在島中</option>
+            <option value="extending">續住確認中</option>
+            <option value="departed_followup">已離境 / 待回訪</option>
+            <option value="completed">已結案</option>
           </select>
         </div>
 
@@ -3599,7 +3627,7 @@
 
       <div class="flex gap-2 pt-2 border-t border-neutral-800">
         <button onclick="closeEditDrawer()" class="flex-1 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 rounded-xl text-xs font-medium transition">取消</button>
-        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950 transition">儲存變更</button>
+        <button onclick="saveGuestDetails()" class="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs shadow-md shadow-red-950">儲存變更</button>
       </div>
     </div>
   </div>
