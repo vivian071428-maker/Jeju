@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>濟州島貴賓專屬行程系統</title>
+  <title>Poker Next 預約表單 </title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- LINE LIFF SDK -->
@@ -851,7 +851,7 @@
           ✈
         </div>
         <h2 class="text-lg font-black text-white tracking-tight">濟州專屬行程確認卡</h2>
-        <p class="text-[11px] text-neutral-400 mt-1">請核對您的行程資料，核對無誤後請輸入手機末3碼完成綁定</p>
+        <p class="text-[11px] text-neutral-400 mt-1">請核對您的行程資料，核對無誤後請輸入手機末3碼</p>
       </div>
 
       <div class="bg-neutral-950 border border-neutral-800 rounded-2xl p-4 space-y-3 text-xs">
@@ -903,25 +903,25 @@
       <!-- 尚未認領：輸入手機末 3 碼確認 -->
       <div id="claimSection" class="space-y-3 pt-1">
         <div class="bg-red-950/20 border border-red-900/40 rounded-xl p-3 space-y-2">
-          <label class="block text-xs font-bold text-red-400">防呆驗證：請輸入此行程之手機號碼末 3 碼 *</label>
+          <label class="block text-xs font-bold text-red-400">請輸入此行程之手機號碼末 3 碼 *</label>
           <input id="claimPhoneLast3" maxlength="3" type="tel" placeholder="例如：678" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-red-900/60 rounded-xl outline-none focus:border-red-500 text-center text-lg font-mono font-bold tracking-widest text-white transition" />
           <p id="claimError" class="hidden text-xs text-red-400 text-center font-medium"></p>
         </div>
 
         <button id="claimConfirmBtn" onclick="submitClaimAndConfirm()" class="w-full bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold py-3.5 rounded-xl transition duration-200 shadow-lg shadow-red-950/60 text-xs">
-          確認行程並綁定 LINE
+          確認行程
         </button>
       </div>
 
       <!-- 已認領提示 -->
       <div id="claimedNotice" class="hidden bg-neutral-950 border border-neutral-800 rounded-xl p-4 text-center space-y-1">
-        <div class="text-emerald-400 font-bold text-xs">✓ 此行程已由貴賓完成核對與 LINE 帳號綁定</div>
+        <div class="text-emerald-400 font-bold text-xs">✓ 此行程已完成預約</div>
         <p class="text-[11px] text-neutral-500">如有行程調整需求，請直接於 LINE 官方帳號與專員聯繫。</p>
       </div>
 
       <!-- 剛完成認領成功提示 -->
       <div id="claimedSuccessNotice" class="hidden bg-emerald-950/40 border border-emerald-800/80 rounded-xl p-4 text-center space-y-1">
-        <div class="text-emerald-400 font-black text-sm">🎉 行程核對完成！已成功綁定 LINE</div>
+        <div class="text-emerald-400 font-black text-sm">🎉 行程核對完成！</div>
         <p class="text-[11px] text-neutral-300 leading-relaxed">接待團隊已同步接獲您的行程核對通知，祝您濟州島旅途愉快！</p>
       </div>
     </div>
