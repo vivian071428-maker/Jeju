@@ -20,19 +20,19 @@
     const k2 = "bohJRCPiOMnA65xVmmUyysV8";
 
     const firebaseConfig = {
-      apiKey: k1 + k2,
-      authDomain: "jeju-system.firebaseapp.com",
-      databaseURL: "https://jeju-system-default-rtdb.firebaseio.com",
-      projectId: "jeju-system",
-      storageBucket: "jeju-system.firebasestorage.app",
-      messagingSenderId: "918975222741",
-      appId: "1:918975222741:web:e9434a6326f522904c635c"
+     apiKey: "AIzaSyCnWUQICp13XfyNMlA6e9CuLBBYe4EMAsI",
+  authDomain: "pokernext-crm.firebaseapp.com",
+  databaseURL: "https://pokernext-crm-default-rtdb.firebaseio.com",
+  projectId: "pokernext-crm",
+  storageBucket: "pokernext-crm.firebasestorage.app",
+  messagingSenderId: "438172140840",
+  appId: "1:438172140840:web:89d38c1b555eb84dafbc1d"
     };
 
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
-    const LIFF_ID = "2011368021-eRH4fnvP"; 
+    const LIFF_ID = "2011444503-ewRF61OH"; 
     let currentLineUserId = "";
 
     async function initLiff() {
@@ -320,8 +320,8 @@
         let parts = nameChunk.split('<<');
         if (parts.length >= 2) {
           let surname = parts[0].replace(/</g, '').trim();
-          let given = parts[1].replace(/<+/g, '-').replace(/-+$/, '').trim();
-          if (surname) parsed.englishName = `${surname}, ${given}`;
+          let given = parts[1].replace(/<+/g, ' ').trim();
+          if (surname) parsed.englishName = `${surname} ${given}`;
         }
       }
 
@@ -474,36 +474,16 @@
       validatePhone(val);
     });
 
-    function formatEnglishName(val) {
-      let clean = val.toUpperCase().replace(/[^A-Z\s,]/g, "");
-      if (!clean) return "";
-      
-      if (!clean.includes(",")) {
-        let parts = clean.trim().split(/\s+/);
-        if (parts.length >= 2) {
-          let surname = parts[0];
-          let given = parts.slice(1).join(" ");
-          clean = `${surname}, ${given}`;
-        }
-      }
-      return clean;
-    }
-
+    // 💡 完全禁絕逗號，僅允許英文字母與空格
     englishNameInput.addEventListener("input", (e) => {
-      let filtered = e.target.value.toUpperCase().replace(/[^A-Z\s,]/g, "");
+      let filtered = e.target.value.toUpperCase().replace(/[^A-Z\s]/g, "");
       e.target.value = filtered;
       englishNameError.classList.add("hidden");
     });
 
     englishNameInput.addEventListener("blur", (e) => {
-      let formatted = formatEnglishName(e.target.value);
-      e.target.value = formatted;
-      if (formatted && !formatted.includes(",")) {
-        englishNameError.textContent = "建議格式為: 姓氏, 名字 (例: LIN, MEI HUA)";
-        englishNameError.classList.remove("hidden");
-      } else {
-        englishNameError.classList.add("hidden");
-      }
+      e.target.value = e.target.value.toUpperCase().trim();
+      englishNameError.classList.add("hidden");
     });
 
     function formatNationalIdField() {
@@ -556,7 +536,7 @@
       const nidValid = /^[A-Z][12][0-9]{8}$/.test(nidVal);
       if (!nidValid) {
         nationalIdError.textContent = "身分證格式錯誤：首字須為英文，第二碼須為 1 或 2，總計 10 碼";
-        nationalIdError.classList.remove("hidden");
+        nationalIdError.classList.add("hidden");
         return nationalIdInput.focus();
       }
 
@@ -624,7 +604,7 @@
         lastSubmittedGuestId = targetId;
         lastSubmittedDeparture = depValue;
 
-        const GAS_URL = "https://script.google.com/macros/s/AKfycbxy6tNCg3hhoxbWAH7ruCDt25m5bDU5_54qLB3alGS1hRCVCg9qQLXVdHVM1KXZXf5Q/exec";
+        const GAS_URL = "https://script.google.com/macros/s/AKfycbxo3fqZxHeELvdWDhDolx6TPXYxvwH8baJSYbkWyxT_FQSHIRsGh_pT9dE9RN_ZqIW0Yw/exec";
 
         fetch(GAS_URL, {
           method: "POST",
@@ -749,9 +729,9 @@
         <!-- 護照英文姓名 -->
         <div>
           <label class="block text-xs font-semibold text-neutral-300 mb-1">護照英文姓名 *</label>
-          <input id="englishName" required placeholder="例：LIN, MEI HUA" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
+          <input id="englishName" required placeholder="例：LEE TING YU" class="w-full px-3.5 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl outline-none focus:border-red-500 text-xs sm:text-sm placeholder:text-neutral-600 uppercase font-mono tracking-wide text-neutral-100 transition" />
           <p id="englishNameError" class="hidden text-xs text-amber-400 font-medium mt-1"></p>
-          <p class="text-[10px] text-neutral-500 mt-0.5">※ 請依照護照格式填寫（姓氏, 名字）。</p>
+          <p class="text-[10px] text-neutral-500 mt-0.5">※ 請依照護照格式填寫。</p>
         </div>
 
         <!-- 推薦人 (選填) -->
